@@ -88,6 +88,26 @@ round-trip re-read matched. This is inside the `n=33 "Rotary Org 1"` tone's slot
 offset `+0x18` from that name field) — one byte past the `+0x15/+0x16` Level/Pan pair found above,
 so plausibly a third per-tone byte (Portamento switch? not tested for audibility).
 
+## Scene change — confirmed no MIDI output (2026-08-31)
+
+`tools/monitor.py` passively listened on the MC-707's MIDI input port (clock/active-sensing
+filtered out) while the user changed Scene locally on the front panel. Tested twice: once cycling
+through scenes 1→4, once repeatedly toggling between 1-1 and 1-4 over a 40s window. **Zero
+messages of any kind were received in either test** — no CC, Program Change, Note, or SysEx.
+
+This confirms Scene changes are not reflected over MIDI at all on this device/firmware, at least
+not as a spontaneous transmission. It doesn't rule out a SysEx *write* address existing (RQ1/DT1
+probing, like the M1 tone-parameter work, could still find one) — only that the device doesn't
+announce the change itself the way it might for other state. Finding a writable address would be
+its own discovery effort, structurally similar to M1 but for the pattern/scene address space
+rather than the tone address space, and would cross into "pattern/clip/sequencer editing," which
+`docs/BRIEF.md` §1 lists as a v1 non-goal. Not pursued further without an explicit decision to
+extend scope.
+
+**Current app behavior:** the Scene selector in the control panel remains interactive (per the
+user's request) but transmits nothing — this is now a confirmed decision, not a placeholder
+waiting on unverified data.
+
 ## Tooling note
 
 `python-rtmidi`'s Windows backend can hang in `port.close()` shortly after a sysex receive.
