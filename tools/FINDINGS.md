@@ -108,6 +108,23 @@ extend scope.
 user's request) but transmits nothing — this is now a confirmed decision, not a placeholder
 waiting on unverified data.
 
+## Scene change — remote control confirmed working (2026-08-31, later same day)
+
+Reading the official Ver.1.20 update docs (while researching MIDI file import, see below) turned
+up the real mechanism: system settings (MIDI tab) include **Control Channel** (CH1–16), **Control
+Rx** (OFF/ON — "specifies whether scene changes are received from an external device"), and
+**Control Tx MIDI OUT1/OUT2/USB MIDI** (OFF/ON, output side — explains why the negative test above
+found nothing: Tx is off by default, not because no mechanism exists).
+
+Tested live: with the device's **Control Channel = CH12**, sent a plain Program Change on MIDI
+channel 12 (program 0, then program 3) via a one-off `mido` script. **Confirmed: this switches the
+Scene on the device** (user watched the screen, saw it change both times). Same pattern as Clip
+(`Program Change = target - 1`).
+
+**This is a per-device/per-project setting, not a fixed value** — Control Channel can be set to
+anything CH1–16 on the system settings screen, so the app should not hardcode `12`. Wired into
+`ControlPanelComponent` as a user-configurable Control Channel selector next to the Scene control.
+
 ## Tooling note
 
 `python-rtmidi`'s Windows backend can hang in `port.close()` shortly after a sysex receive.

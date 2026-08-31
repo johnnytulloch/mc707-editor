@@ -45,5 +45,12 @@ private:
     juce::Label sceneLabel { {}, "SCENE" };
     juce::Slider sceneSlider { juce::Slider::IncDecButtons, juce::Slider::TextBoxBelow };
 
+    // Scene changes go out as a Program Change on the device's "Control Channel" system setting
+    // (UTILITY -> System Settings -> MIDI tab), confirmed working live -- see tools/FINDINGS.md.
+    // That setting is per-device/per-project, not a fixed value, so it's user-selectable here
+    // rather than hardcoded.
+    juce::Label controlChannelLabel { {}, "Control Ch:" };
+    juce::ComboBox controlChannelBox;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ControlPanelComponent)
 };

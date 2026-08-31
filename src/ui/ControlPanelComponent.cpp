@@ -55,16 +55,23 @@ ControlPanelComponent::ControlPanelComponent()
     sceneLabel.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (sceneLabel);
 
+    for (int ch = 1; ch <= 16; ++ch)
+        controlChannelBox.addItem (juce::String (ch), ch);
+    controlChannelBox.setSelectedId (12, juce::dontSendNotification); // confirmed working value, still user-changeable
+    addAndMakeVisible (controlChannelBox);
+    addAndMakeVisible (controlChannelLabel);
+
     sceneSlider.setRange (1.0, 8.0, 1.0);
     sceneSlider.setValue (1.0, juce::dontSendNotification);
-    // Scene-launch has no documented CC/PC/SysEx, and monitoring confirmed the device sends
-    // nothing over MIDI when Scene is changed locally (tools/FINDINGS.md) -- interactive per user
-    // request, but transmission is deliberately left unwired. A writable SysEx address might still
-    // exist but finding one is pattern/sequencer discovery work, out of v1 scope (brief §1).
+    // Scene changes are sent as Program Change (scene - 1) on the device's Control Channel
+    // system setting -- confirmed working live against real hardware, see tools/FINDINGS.md.
+    // Requires the device's "Control Rx" system setting to be ON.
     sceneSlider.onValueChange = [this]
     {
         auto scene = (int) std::round (sceneSlider.getValue());
-        updateLcd ("SCENE (not yet sent)", scene);
+        auto controlChannel = controlChannelBox.getSelectedId();
+        transmitter.sendProgramChange (controlChannel, scene - 1);
+        updateLcd ("SCENE (ch" + juce::String (controlChannel) + ")", scene);
     };
     addAndMakeVisible (sceneSlider);
 
@@ -161,6 +168,11 @@ void ControlPanelComponent::resized()
     auto sceneArea = sidePanel.removeFromTop (70);
     sceneLabel.setBounds (sceneArea.removeFromTop (18));
     sceneSlider.setBounds (sceneArea.reduced (20, 0));
+
+    sidePanel.removeFromTop (10);
+    auto controlChannelArea = sidePanel.removeFromTop (24);
+    controlChannelLabel.setBounds (controlChannelArea.removeFromLeft (80));
+    controlChannelBox.setBounds (controlChannelArea);
 
     auto stripWidth = area.getWidth() / 8;
     for (auto& strip : strips)
