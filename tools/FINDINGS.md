@@ -293,3 +293,89 @@ confirmed by ear; Tone MFX and Tone PMT fields (declared address-only, explicitl
 `docs/M2_PLAN.md`); the rest of `Tone Partial` past `0x4F`; Mod LFO's offset within the doubled
 `partial_lfo` block; Partial EQ and Partial Pitch Env (headers found in the doc, not yet
 transcribed); Synth Common/PMT/Partial and Reverb/Chorus (not started).
+
+## M2 audible pass, round 1 — closed-loop device confirmation (2026-08-31, later same day)
+
+Started with the classic write→listen→restore method (`tools/write_field.py`, a non-interactive
+sibling of `dt1_write_test.py` for scripted use): confirmed **TVF Cutoff Frequency** (`+0x32`) and
+**TVF Resonance** (`+0x3D`) audibly on Track 1's track-sound slot (`0x30200000`), each via a raw
+MIDI Note On (channel 1, note 60) sent directly by script — matching the exact method that worked
+for the original M1 Level test. Note: a read taken shortly after Note Off showed a drifted value
+(510) instead of the written 100 for Cutoff — **reads should be taken with no note active/settled,
+not immediately after Note Off**, since the raw address may reflect live/modulated state while a
+note is sounding or just released. Also caught and fixed a real mistake here: a restore write typo
+(`00 00 03 0F` instead of the actual original `00 03 0F 0F`) briefly left Cutoff at the wrong
+value (63 instead of 1023) before being corrected on the next write.
+
+**The user then proposed a much stronger protocol: closed-loop confirmation against the device's
+own front-panel display**, not just "does the sound change" — (1) set a control on-device to a
+known value, read the address back and check for an exact numeric match, then (2) write a new
+value via SysEx and confirm the on-device display updates to match. This is strictly better
+evidence than audible-only confirmation (removes all subjectivity, ties the address directly to
+the device's own named parameter) and became the method for the rest of this pass. Added a new
+`device-confirmed` validation tier in `data/zencore-map.json` for it — the strongest of the tiers.
+
+**First finding from this method was a false alarm, usefully explained:** user set the device's
+**Mixer screen** Pan to hard left; Tone Common's `+0x16` Pan still read center (0x40), unchanged.
+This is *not* a bug — Track 1 already has a CC-based Pan control in the app's Phase 1 Control
+Panel (almost certainly standard MIDI CC10, per `docs/BRIEF.md`'s own CC table), which is what the
+Mixer screen edits. Tone Common's Pan (`+0x16`) is a separate, deeper patch-internal parameter not
+exposed on the Mixer screen at all — both findings are correct, they're just different parameters.
+
+**Confirmed via the closed-loop method (all bidirectional: on-device set → read matches; SysEx
+write → on-device display updates; then restored to the original value):**
+- **Tone Partial Pan** (`tone_partial +0x07`, per-partial, not Tone Common's `+0x16`): device's
+  SOUND EDIT → AMP → PAN PLT1-4 screen. Set to L64, read back `0x00` exactly; wrote `0x40` (center)
+  via SysEx, on-device PLT1 display updated to center.
+- **TVF Cutoff Frequency** (`+0x32`) and **TVF Resonance** (`+0x3D`): device's Easy Mode FILTER
+  screen (numeric 0-1023 display, distinct from the per-partial PLT1-4 AMP screen — Easy Mode
+  appears to write the same Cutoff/Resonance value to all 4 partials at once, unlike Pan which was
+  tested per-partial). Set to 492/27, read back matched exactly; wrote 800/500 via SysEx, on-device
+  display updated to match; restored.
+- **Envelope ADSR mapping, all three envelopes** (device's Easy Mode FENV/PENV/AMP screens show a
+  simplified 4-knob Attack/Decay/Sustain/Release, not the full multi-stage raw data) — same pattern
+  confirmed exactly on Filter Env, Amp Env, and (after fetching its byte table fresh from the doc,
+  not previously mapped) Pitch Env:
+  | Easy Mode | Raw field |
+  |---|---|
+  | Attack | Time1 |
+  | Decay | **Time3** (not Time2 — Time2/Level0/1/2 exist but aren't exposed in Easy Mode; likely a hidden secondary stage) |
+  | Sustain | **Level3** (the last level before the release stage) |
+  | Release | Time4 |
+
+  Filter Env: Attack=0→Time1=0, Decay=850→Time3=850 (round-trip write to 200 confirmed on-device),
+  Release=564→Time4=564, Sustain=0→Level3=0. Amp Env: Attack=32→Time1=32, Decay=897→Time3=897,
+  Sustain=36→Level3=36, Release=195→Time4=195. Pitch Env (also newly mapped into
+  `data/zencore-map.json` this pass, full 45-byte/`0x2D` block from the official doc — Depth,
+  Velocity Sens ×3, Time1-4, Level0-4 signed `-511..+511`, Velocity Curve): Depth=+6→raw 134,
+  Attack=20→Time1=20, Decay=77→Time3=77, Sustain=+511 initially matched **both** Level0 and Level3
+  (they happened to be numerically equal in this tone) — disambiguated by writing Level3 alone to a
+  different value (raw 1024) and confirming only the Sustain display changed; Level3 confirmed,
+  Level0 left `unvalidated`. Restored afterward.
+- **Partial LFO, 6 fields** (`partial_lfo +0x00/+0x04/+0x17/+0x19/+0x1B/+0x1D` — Waveform, Rate,
+  Pitch/TVF/TVA/PAN Depth): all matched the on-device LFO display exactly (Waveform=1/TRI, Rate=691,
+  Pitch Depth=+20, TVF Depth=+19, TVA Depth=+8, PAN Depth=+6) — 6 independent numeric matches, read
+  only (no write test this round).
+
+**Important open finding, not resolved this pass:** the device's Easy Mode tone-edit screen shows
+**two independent LFO tabs** ("LFO 1", waveform SIN, and "LFO 2", waveform TRI) with visibly
+different Rate/Depth values on each. The block mapped above (relative offset `0x3000`, which the
+official doc's own ZCore address-map table calls "Partial LFO **1**") is actually the data behind
+the on-device **"LFO 2"** tab — confirmed by all 6 matches above. Reading the next partial-indexed
+slot (`0x3200`, "Partial LFO 2" per the doc) to look for the UI's "LFO 1" instead returned data
+**identical** to `0x3000`, not a second independent LFO. Two live hypotheses, neither confirmed:
+(a) Easy Mode broadcasts LFO settings to all 4 partials identically (matches the same broadcast
+behavior already seen for Cutoff Frequency), so `0x3200` really is partial 2's LFO and just
+happens to mirror partial 1's; or (b) the UI's "LFO 1" lives in a completely different,
+unexplored block — the doc's separate Tone Synth Common/PMT/Partial hierarchy (relative offsets
+`0x3C00`+) is an untested candidate, especially since the tone under test this whole session,
+"Ax Piano", is very likely one of Jupiter-X's analog Model Expansion tone types (a second,
+parallel synth-modeling layer, distinct from the standard PCM partial engine) rather than a plain
+ZEN-Core patch. Left as an open item per user's explicit choice to stop here and write up rather
+than keep hunting.
+
+All test writes this pass were restored to their original values and round-trip verified before
+moving to the next field. `tools/write_field.py` (new) is the non-interactive read/write/round-trip
+helper used throughout — same safety posture as `dt1_write_test.py` but scriptable without a
+blocking stdin prompt, since audible/visual confirmation now happens via the user's own reports
+rather than the script's own `input()`.
