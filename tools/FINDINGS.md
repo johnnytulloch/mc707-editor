@@ -180,3 +180,116 @@ atomic bulk operation (like the on-device Sound Browser performs) rather than a 
 write. Not pursued further without a different approach (e.g. reviewing `mcpoker`/`mctools_basic`
 source for anything relevant, or a full preset-dump write via `.SVZ` data per JDTools — a much
 bigger undertaking requiring the actual ROM preset data, which isn't available to us).
+
+## M2 sub-problem A solved — tone-slot addressing formula (2026-08-31)
+
+Read the actual source of `Locriana/mcpoker` and its successor `Locriana/mctools_basic` (both
+public domain / MIT, per `docs/BRIEF.md` §3, §10). `mctools_basic/zen_core_tools.py`'s
+`ZenCoreTools.get_base_address()` gives an 8-entry table of per-track base addresses plus a fixed
+per-clip stride:
+
+```python
+mc_track_base = [0x30000000, 0x30220000, 0x30440000, 0x30660000,
+                  0x31080000, 0x312A0000, 0x314C0000, 0x316E0000]
+tone_alignment = 0x20000
+# clip_idx 0-15:
+base_address = mc_track_base[track_idx] + tone_alignment * clip_idx
+# no clip_idx -> the track's own "track sound" slot (one past the last clip):
+base_address = mc_track_base[track_idx] + tone_alignment * 16
+```
+
+**Bug found in the upstream formula and fixed:** `mc_track_base` is not a uniform arithmetic
+sequence in plain hex (`0x30660000 -> 0x31080000` jumps by `0xA20000`, not the `0x220000` between
+every other pair) because Roland SysEx addresses are 7-bit clean — every one of the 4 address
+bytes must be `0x00-0x7F`. Adding `tone_alignment * n` with plain 32-bit hex arithmetic is only
+correct while no byte crosses `0x7F`; past that point the real device address carries at `0x80`
+(128), not `0x100` — i.e. the 4-byte address is base-128 digits, not base-256. mcpoker's own
+Python code does the addition in plain hex and is silently wrong for the slots where this
+matters. Implemented the correct base-128-carry addition in `tools/zencore_addressing.py`
+(`add_7bit_carry()` + `get_slot_address(track_idx, clip_idx)`).
+
+**Validated four ways, live:**
+1. Formula reproduces the already-confirmed **Track 1 track-sound = `0x30200000`** (this session,
+   earlier — see above) exactly.
+2. Formula reproduces the already-confirmed **Track 4 track-sound = `0x31060000`** (`SynthChord01
+   MC`, confirmed by on-device name match — see above) exactly. Plain hex addition gets this one
+   wrong (`0x30860000`, an address containing an illegal `0x86` byte) — this is the case that
+   caught the bug.
+3. New prediction **Track 8 track-sound = `0x320E0000`** (needs the carry, never tested before):
+   RQ1-read returned a real 16-byte structured reply (`20 20 ... 20`, i.e. a blank/space-padded
+   name — a valid empty-slot name, not a timeout or garbage).
+4. New prediction **Track 8 clip 10 = `0x32000000`** (also needs the carry): same result, a valid
+   16-byte blank-name reply.
+5. Attempting the *uncorrected* plain-hex address for the Track 8 case (`31 8E 00 00`) doesn't
+   even reach the device — `mido` itself raises `ValueError: data byte must be in range 0..127`
+   building the SysEx message, since `0x8E` has bit 7 set. Concrete proof the naive port is not
+   just imprecise but outright broken for the affected slots.
+
+**Affected tracks** (where `mc_track_base[track_idx]`'s byte2 is high enough that some clip_idx —
+or the track-sound slot — overflows `0x7F` and needs the carry): **Track 4** (clip_idx ≥ 13, i.e.
+clips 14-16 where "16" = track-sound) and **Track 8** (clip_idx ≥ 9, i.e. clips 10-16). All other
+tracks stay under `0x7F` for every slot, but `tools/zencore_addressing.py` always applies the
+carry-safe addition rather than relying on which tracks happen to be safe.
+
+Within-tone field offsets (e.g. Level `+0x15`, Pan `+0x16`) don't need this correction — they're
+added to a slot base address whose low byte is always `0x00`, and the largest known field offset
+(`0x36`, the Tone Common block size) never approaches `0x7F`.
+
+**Sub-problem A is solved.** `tools/zencore_addressing.py::get_slot_address(track_idx, clip_idx)`
+gives the correct base address for any of the 8 tracks × (16 clips + 1 track-sound) = 136 tone
+slots.
+
+## M2 sub-problem B — within-tone field layout, first pass (2026-08-31)
+
+Downloaded the official **JUPITER-Xm MIDI Implementation Ver.3.0+** PDF directly (`pdftotext`,
+poppler's `pdftoppm` isn't installed here) rather than relying on the earlier-session summarized
+read of it, since a summary isn't reliable enough to build hardware-write addresses from. Extracted
+the exact byte tables (not paraphrased) for `[Tone Common]`, `[Tone Partial]` (offsets `0x00-0x4F`;
+the rest of that block is out of scope this pass), `[Partial Filter Env]`, `[Partial Amp Env]`, and
+`[Partial LFO]`'s first LFO (offsets `0x00-0x1D`; the block is oddly double-strided — `0x0200` not
+the usual `0x0100` — almost certainly because it also holds a Mod LFO copy whose offset isn't
+identified yet). Also pulled the `[ZCore]` section's authoritative block-offset table (relative
+addresses for MFX, PMT, all 4 partials' Pitch/Filter/Amp envelopes, LFOs, EQs, and the Synth
+Common/PMT/Partial blocks) — this resolved a discrepancy in `docs/BRIEF.md`'s summarized version:
+**Partial LFO strides `0x0200` per partial, not `0x0100`** like every other per-partial block.
+
+Wrote this all into **`data/zencore-map.json`** (the brief §6 deliverable), with an explicit
+per-field `validation` tier (`audible-confirmed` / `round-trip-confirmed` / `structural` /
+`unvalidated`) so app code (M3+) can tell a solid offset from a plausible-but-unverified one, plus
+`meta.slot_addressing` (sub-problem A's table/formula) and `meta.block_relative_offsets` (the ZCore
+map above) so the whole 136-slot × N-block address space is derivable from the file alone.
+
+**This also retroactively explains two open mysteries from the earlier patch-selection SysEx
+session** (see "Track tone/patch selection" above):
+- `+0x26`/`+0x27` (the writes that were silently rejected) are actually the 3rd/4th nibble-bytes of
+  **Portamento Time**, a 4-byte nibble-packed field starting at `+0x24`. The device most likely only
+  accepts a DT1 write at a field's declared start address spanning its full byte width, not into the
+  middle of a packed multi-byte value — the "silent no-op" failure mode matches this exactly.
+  Confirms the earlier conclusion (don't remote-select tones this way) was right, but for a
+  different, now-understood reason — it wasn't a structural/protected byte, just a malformed write.
+- `+0x28`/`+0x29` (the value-sweep that showed no consistent audible effect) are **Bend Range
+  Up/Down** — correctly explains why sweeping them produced nothing on a held static note.
+
+**Live structural-pass validation** (`tools/validate_map.py`, read-only, RQ1 every declared field
+and check it decodes in-range): ran against Track 1 Clip 1 for all 4 mapped blocks —
+**97/97 fields passed** (`tone_common` 29/29, `tone_partial` 45/45, `partial_filter_env` 14/14,
+`partial_amp_env` 9/9). Every nibble-packed multi-byte field decoded to a sane in-range value
+(e.g. Tone Common's Portamento Time raw `00 00 04 09` → 73, well within 0-1023), confirming the
+nibble4/nibble2 decode logic and the field-start-offset bookkeeping are both correct. The decoded
+envelope shapes look real, not garbage: Filter Env `Level0..4` = `0, 1023, 1023, 1023, 0` (rises
+then falls back to 0), Amp Env `Time1..4` = `0, 30, 400, 400` with `Level1..3` = `1023, 1023, 1023`
+(fast attack, long decay/sustain/release) — plausible envelope data for whatever tone currently
+occupies that slot, not noise.
+
+**Tooling note:** the structural pass needs the MIDI output port, which the JUCE app holds
+exclusively while running (Windows WinMM ports are single-client) — close the built app before
+running `validate_map.py` or any of the other `tools/` scripts, same as the existing python.exe
+port-lock gotcha above.
+
+**Not done this pass (left for a follow-up M2 session):** the audible pass (write → listen →
+round-trip → restore) for the priority subset — filter cutoff/resonance, envelope stages, LFO
+rate/depth are all mapped and flagged `unvalidated`/priority-noted in the JSON, but not yet
+confirmed by ear; Tone MFX and Tone PMT fields (declared address-only, explicitly deferred per
+`docs/M2_PLAN.md`); the rest of `Tone Partial` past `0x4F`; Mod LFO's offset within the doubled
+`partial_lfo` block; Partial EQ and Partial Pitch Env (headers found in the doc, not yet
+transcribed); Synth Common/PMT/Partial and Reverb/Chorus (not started).
