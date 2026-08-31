@@ -61,7 +61,18 @@ bool CCTransmitter::openDevice (const juce::String& deviceName)
     {
         midiInput = juce::MidiInput::openDevice (bestInput.identifier, this);
         if (midiInput != nullptr)
+        {
             midiInput->start();
+            matchedInputName = bestInput.name;
+        }
+        else
+        {
+            matchedInputName = "FAILED TO OPEN: " + bestInput.name;
+        }
+    }
+    else
+    {
+        matchedInputName = "NO MATCH FOUND (checked " + juce::String (juce::MidiInput::getAvailableDevices().size()) + " inputs)";
     }
 
     startTimerHz (10); // read-timeout polling

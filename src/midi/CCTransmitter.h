@@ -33,7 +33,9 @@ public:
     bool openDevice (const juce::String& deviceName);
     void closeDevice();
     bool isOpen() const { return midiOutput != nullptr; }
+    bool hasSysExInput() const { return midiInput != nullptr; }
     bool isSysExReady() const { return midiOutput != nullptr && midiInput != nullptr; }
+    juce::String getMatchedInputName() const { return matchedInputName; }
 
     // channel: 1-16. ccNumber and value: 0-127. No-op if no device is open.
     void sendControlChange (int channel, int ccNumber, int value);
@@ -70,6 +72,7 @@ private:
 
     std::unique_ptr<juce::MidiOutput> midiOutput;
     std::unique_ptr<juce::MidiInput> midiInput;
+    juce::String matchedInputName; // diagnostic: which input name was matched (or "" if none)
 
     std::deque<PendingRead> readQueue;
     bool waitingForReply = false;

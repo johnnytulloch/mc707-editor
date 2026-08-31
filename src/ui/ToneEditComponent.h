@@ -1,17 +1,20 @@
 #pragma once
 
 #include <juce_gui_extra/juce_gui_extra.h>
-#include <array>
+#include <memory>
 #include <optional>
+#include <vector>
 #include "../midi/CCTransmitter.h"
 #include "../model/ParameterMap.h"
 
-// First real SysEx-editing panel in the app (M3 pilot). Edits the AMP
-// section fields closed-loop confirmed against real hardware this session
-// (tools/FINDINGS.md, "M2 audible pass, round 1"): per-partial Pan, and the
-// Amp Envelope's Attack/Decay/Sustain/Release. Addresses a track's own
-// "track sound" slot (not a specific clip tone) -- matches everything
-// validated so far; clip-tone editing is a later extension.
+// First real SysEx-editing panel in the app (M3 pilot). Edits fields
+// closed-loop confirmed against real hardware this session (see
+// tools/FINDINGS.md's "M2 audible pass" sections): AMP (per-partial Pan,
+// Amp Envelope ADSR) and FILTER (Cutoff, Resonance, Filter Envelope ADSR).
+// Addresses a track's own "track sound" slot (not a specific clip tone) --
+// matches everything validated so far; clip-tone editing is a later
+// extension. Grouped into labelled sections that grow as more fields get
+// confirmed (LFO, PENV, EQ...) -- see kControlSpecs in the .cpp.
 //
 // Field offsets/sizes/ranges come from ParameterMap (data/zencore-map.json),
 // never hardcoded here -- see CLAUDE.md. Shares the app's one MIDI
@@ -32,10 +35,19 @@ private:
     {
         juce::Slider slider { juce::Slider::LinearVertical, juce::Slider::TextBoxBelow };
         juce::Label label;
+        juce::String section;
         juce::String blockId;
         std::optional<FieldDescriptor> descriptor;
         int lastSent = -1;
         bool initialized = false; // guards against writing before the first read completes
+    };
+
+    struct Section
+    {
+        juce::String name;
+        std::unique_ptr<juce::Label> heading;
+        int firstControlIndex = 0;
+        int controlCount = 0;
     };
 
     void timerCallback() override; // poll-and-send-on-change, matches TrackStripComponent
@@ -47,7 +59,7 @@ private:
     ParameterMap parameterMap;
 
     juce::Label titleLabel { {}, "TONE EDIT" };
-    juce::Label subtitleLabel { {}, "AMP section \xE2\x80\x94 track sound, M3 pilot" };
+    juce::Label subtitleLabel { {}, "Track sound, M3 pilot \xE2\x80\x94 sections grow as more fields are confirmed" };
 
     juce::Label trackLabel { {}, "Track:" };
     juce::ComboBox trackBox;
@@ -57,7 +69,13 @@ private:
     juce::Label statusLabel;
     juce::Label confidenceNote;
 
-    std::array<EditControl, 5> controls; // Attack, Decay, Sustain, Release, Pan
+    // EditControl holds a juce::Slider/Label, which are non-copyable and
+    // non-movable -- std::vector<EditControl> can't work even with
+    // reserve()+emplace_back() (the container's move/copy requirements are
+    // checked at compile time regardless of whether they're ever hit at
+    // runtime), hence unique_ptr per element.
+    std::vector<std::unique_ptr<EditControl>> controls;
+    std::vector<Section> sections;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ToneEditComponent)
 };

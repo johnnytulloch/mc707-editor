@@ -7,20 +7,28 @@ namespace
 {
     struct ControlSpec
     {
+        const char* section;
         const char* label;
         const char* blockId;
         const char* fieldName;
     };
 
-    // AMP section, per tools/FINDINGS.md "M2 audible pass, round 1": the
-    // on-device Easy Mode ADSR view maps Attack->Time1, Decay->Time3 (not
-    // Time2), Sustain->Level3 (not Level0/1/2), Release->Time4.
-    constexpr std::array<ControlSpec, 5> kControlSpecs { {
-        { "ATTACK",  "partial_amp_env", "TVA Env Time1" },
-        { "DECAY",   "partial_amp_env", "TVA Env Time3" },
-        { "SUSTAIN", "partial_amp_env", "TVA Env Level3" },
-        { "RELEASE", "partial_amp_env", "TVA Env Time4" },
-        { "PAN",     "tone_partial",    "Pan" },
+    // Per tools/FINDINGS.md's "M2 audible pass" sections: the on-device Easy
+    // Mode ADSR view maps Attack->Time1, Decay->Time3 (not Time2),
+    // Sustain->Level3 (not Level0/1/2), Release->Time4 -- true for AMP and
+    // FILTER envelopes alike.
+    constexpr std::array<ControlSpec, 11> kControlSpecs { {
+        { "AMP",    "ATTACK",  "partial_amp_env", "TVA Env Time1" },
+        { "AMP",    "DECAY",   "partial_amp_env", "TVA Env Time3" },
+        { "AMP",    "SUSTAIN", "partial_amp_env", "TVA Env Level3" },
+        { "AMP",    "RELEASE", "partial_amp_env", "TVA Env Time4" },
+        { "AMP",    "PAN",     "tone_partial",    "Pan" },
+        { "FILTER", "CUTOFF",  "tone_partial",       "TVF Cutoff Frequency" },
+        { "FILTER", "RESO",    "tone_partial",       "TVF Resonance" },
+        { "FILTER", "ATTACK",  "partial_filter_env", "TVF Env Time1" },
+        { "FILTER", "DECAY",   "partial_filter_env", "TVF Env Time3" },
+        { "FILTER", "SUSTAIN", "partial_filter_env", "TVF Env Level3" },
+        { "FILTER", "RELEASE", "partial_filter_env", "TVF Env Time4" },
     } };
 }
 
@@ -57,16 +65,22 @@ ToneEditComponent::ToneEditComponent (CCTransmitter& transmitterIn)
     addAndMakeVisible (statusLabel);
     setStatus ("Not read yet -- hit Refresh once connected.", juce::Colours::grey);
 
-    for (size_t i = 0; i < controls.size(); ++i)
+    // juce::Slider/Label/Component are non-copyable and non-movable, so
+    // EditControl can't live directly in a std::vector (even reserve()
+    // requires move-construction to be well-formed at compile time) --
+    // each one is heap-allocated instead, only the unique_ptr moves.
+    controls.reserve (kControlSpecs.size());
+    for (auto& spec : kControlSpecs)
     {
-        auto& c = controls[i];
-        auto& spec = kControlSpecs[i];
-
+        controls.push_back (std::make_unique<EditControl>());
+        auto& c = *controls.back();
+        c.section = spec.section;
         c.blockId = spec.blockId;
         c.descriptor = parameterMap.findField (c.blockId, spec.fieldName);
 
         c.label.setText (spec.label, juce::dontSendNotification);
         c.label.setJustificationType (juce::Justification::centred);
+        c.label.setFont (juce::Font (juce::FontOptions (11.0f)));
         addAndMakeVisible (c.label);
 
         if (c.descriptor)
@@ -74,6 +88,28 @@ ToneEditComponent::ToneEditComponent (CCTransmitter& transmitterIn)
         else
             c.slider.setEnabled (false); // field not found in the map -- fail visibly, not silently
         addAndMakeVisible (c.slider);
+    }
+
+    // Group controls into contiguous runs sharing the same section name
+    // (kControlSpecs is already declared grouped by section), each getting
+    // one heading label. Generalizes cleanly as more sections are added.
+    for (int i = 0; i < (int) controls.size(); ++i)
+    {
+        if (! sections.empty() && sections.back().name == controls[(size_t) i]->section)
+        {
+            sections.back().controlCount++;
+            continue;
+        }
+
+        Section s;
+        s.name = controls[(size_t) i]->section;
+        s.heading = std::make_unique<juce::Label> (juce::String(), s.name);
+        s.heading->setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+        s.heading->setColour (juce::Label::textColourId, juce::Colours::orange);
+        addAndMakeVisible (*s.heading);
+        s.firstControlIndex = i;
+        s.controlCount = 1;
+        sections.push_back (std::move (s));
     }
 
     confidenceNote.setText (
@@ -124,16 +160,23 @@ void ToneEditComponent::refreshAll()
         return;
     }
 
-    if (! transmitter.isSysExReady())
+    if (! transmitter.isOpen())
     {
         setStatus ("Not connected -- select a device on the Control Panel tab.", juce::Colours::orange);
+        return;
+    }
+    if (! transmitter.hasSysExInput())
+    {
+        setStatus ("Output connected, but no MIDI input matched (" + transmitter.getMatchedInputName() + ").",
+                    juce::Colours::orange);
         return;
     }
 
     setStatus ("Reading...", juce::Colours::yellow);
 
-    for (auto& c : controls)
+    for (auto& cPtr : controls)
     {
+        auto& c = *cPtr;
         c.initialized = false; // don't let the timer write stale values while re-reading
         if (! c.descriptor)
             continue;
@@ -164,8 +207,9 @@ void ToneEditComponent::timerCallback()
     if (! transmitter.isSysExReady())
         return;
 
-    for (auto& c : controls)
+    for (auto& cPtr : controls)
     {
+        auto& c = *cPtr;
         if (! c.descriptor || ! c.initialized)
             continue;
 
@@ -207,16 +251,26 @@ void ToneEditComponent::resized()
     selectorArea.removeFromLeft (12);
     statusLabel.setBounds (selectorArea);
 
-    area.removeFromTop (24);
+    area.removeFromTop (20);
 
-    auto controlsArea = area.removeFromTop (280);
-    auto controlWidth = controlsArea.getWidth() / (int) controls.size();
-    for (auto& c : controls)
+    constexpr int controlWidth = 90;
+    constexpr int rowHeight = 210;
+
+    for (auto& section : sections)
     {
-        auto strip = controlsArea.removeFromLeft (controlWidth).reduced (18, 0);
-        c.label.setBounds (strip.removeFromTop (20));
-        strip.removeFromTop (6);
-        c.slider.setBounds (strip);
+        area.removeFromTop (18);
+        auto headingArea = area.removeFromTop (20);
+        section.heading->setBounds (headingArea);
+
+        auto row = area.removeFromTop (rowHeight);
+        for (int i = section.firstControlIndex; i < section.firstControlIndex + section.controlCount; ++i)
+        {
+            auto& c = *controls[(size_t) i];
+            auto strip = row.removeFromLeft (controlWidth).reduced (10, 0);
+            c.label.setBounds (strip.removeFromTop (18));
+            strip.removeFromTop (4);
+            c.slider.setBounds (strip);
+        }
     }
 
     area.removeFromTop (16);
