@@ -28,16 +28,20 @@ void CCTransmitter::closeDevice()
     midiOutput.reset();
 }
 
-void CCTransmitter::setChannel (int midiChannel1to16)
-{
-    channel = juce::jlimit (1, 16, midiChannel1to16);
-}
-
-void CCTransmitter::sendControlChange (int ccNumber, int value)
+void CCTransmitter::sendControlChange (int channel, int ccNumber, int value)
 {
     if (midiOutput == nullptr)
         return;
 
     midiOutput->sendMessageNow (
-        juce::MidiMessage::controllerEvent (channel, ccNumber, juce::jlimit (0, 127, value)));
+        juce::MidiMessage::controllerEvent (juce::jlimit (1, 16, channel), ccNumber, juce::jlimit (0, 127, value)));
+}
+
+void CCTransmitter::sendProgramChange (int channel, int program)
+{
+    if (midiOutput == nullptr)
+        return;
+
+    midiOutput->sendMessageNow (
+        juce::MidiMessage::programChange (juce::jlimit (1, 16, channel), juce::jlimit (0, 127, program)));
 }

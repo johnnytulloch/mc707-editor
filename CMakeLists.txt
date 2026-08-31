@@ -22,6 +22,7 @@ juce_add_gui_app(MC707Editor
 target_sources(MC707Editor PRIVATE
     src/Main.cpp
     src/ui/MainComponent.cpp
+    src/ui/TrackStripComponent.cpp
     src/midi/CCTransmitter.cpp
 )
 
