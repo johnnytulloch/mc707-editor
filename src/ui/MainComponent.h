@@ -1,48 +1,21 @@
 #pragma once
 
 #include <juce_gui_extra/juce_gui_extra.h>
-#include <array>
-#include <memory>
-#include "../midi/CCTransmitter.h"
-#include "TrackStripComponent.h"
 
-// Main control-surface shell: 8 track strips (TrackStripComponent) plus a
-// shared device picker, LCD-style readout, and Scene selector. Supersedes
-// Phase 1's single 4-slider view. See PLAN.md for the CC mapping table and
-// the rationale behind each control's behaviour.
-class MainComponent : public juce::Component,
-                       private juce::Timer
+// Thin shell hosting two tabs: the live Control Panel (ControlPanelComponent)
+// and the File Transfer helper (FileTransferComponent). Split into a
+// TabbedComponent because the device can't be in Storage Mode (needed for
+// file transfer) and respond as a live MIDI device at the same time -- see
+// PLAN.md.
+class MainComponent : public juce::Component
 {
 public:
     MainComponent();
-    ~MainComponent() override;
 
-    void paint (juce::Graphics&) override;
     void resized() override;
 
 private:
-    void refreshMidiDevices();
-    void deviceSelected();
-    void timerCallback() override;
-    void updateLcd (const juce::String& paramLabel, int value);
-
-    CCTransmitter transmitter;
-
-    juce::Label titleLabel { {}, "GROOVEBOX MC-707" };
-    juce::Label subtitleLabel { {}, "MIDI-EDITOR / REMOTE" };
-
-    juce::Label deviceLabel { {}, "MIDI Output:" };
-    juce::ComboBox deviceBox;
-    juce::TextButton refreshButton { "Refresh" };
-    juce::Label statusLabel;
-
-    std::array<std::unique_ptr<TrackStripComponent>, 8> strips;
-
-    juce::Label lcdLine1;
-    juce::Label lcdLine2;
-
-    juce::Label sceneLabel { {}, "SCENE" };
-    juce::Slider sceneSlider { juce::Slider::IncDecButtons, juce::Slider::TextBoxBelow };
+    juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };
