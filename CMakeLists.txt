@@ -19,6 +19,16 @@ juce_add_gui_app(MC707Editor
     COMPANY_NAME "mc707-editor"
 )
 
+# Embeds data/zencore-map.json into the binary (BinaryData::zencore_map_json)
+# so the app has a stable, always-available copy without runtime path
+# resolution between the build tree and /data. The JSON file itself stays
+# the one source of truth -- see CLAUDE.md: "Parameter map is data, never a
+# hardcoded address in /src".
+juce_add_binary_data(MC707EditorData
+    SOURCES
+        data/zencore-map.json
+)
+
 target_sources(MC707Editor PRIVATE
     src/Main.cpp
     src/ui/MainComponent.cpp
@@ -26,8 +36,11 @@ target_sources(MC707Editor PRIVATE
     src/ui/TrackStripComponent.cpp
     src/ui/FileTransferComponent.cpp
     src/ui/ClipMatrixComponent.cpp
+    src/ui/ToneEditComponent.cpp
     src/files/SdCardLocator.cpp
     src/midi/CCTransmitter.cpp
+    src/model/ZenCoreAddressing.cpp
+    src/model/ParameterMap.cpp
 )
 
 target_compile_definitions(MC707Editor PRIVATE
@@ -38,8 +51,10 @@ target_compile_definitions(MC707Editor PRIVATE
 )
 
 target_link_libraries(MC707Editor PRIVATE
+    MC707EditorData
     juce::juce_audio_basics
     juce::juce_audio_devices
+    juce::juce_core
     juce::juce_gui_basics
     juce::juce_gui_extra
     juce::juce_recommended_config_flags

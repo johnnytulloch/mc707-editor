@@ -8,7 +8,8 @@ namespace
     };
 }
 
-ControlPanelComponent::ControlPanelComponent()
+ControlPanelComponent::ControlPanelComponent (CCTransmitter& transmitterIn)
+    : transmitter (transmitterIn)
 {
     titleLabel.setJustificationType (juce::Justification::centredRight);
     titleLabel.setFont (juce::Font (juce::FontOptions (20.0f, juce::Font::bold)));

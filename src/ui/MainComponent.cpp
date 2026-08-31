@@ -2,13 +2,15 @@
 #include "ControlPanelComponent.h"
 #include "FileTransferComponent.h"
 #include "ClipMatrixComponent.h"
+#include "ToneEditComponent.h"
 
 MainComponent::MainComponent()
 {
     auto tabBackground = juce::Colour (0xff0d0d0d);
-    tabs.addTab ("Control Panel", tabBackground, new ControlPanelComponent(), true);
+    tabs.addTab ("Control Panel", tabBackground, new ControlPanelComponent (transmitter), true);
     tabs.addTab ("File Transfer", tabBackground, new FileTransferComponent(), true);
     tabs.addTab ("Clip Matrix", tabBackground, new ClipMatrixComponent(), true);
+    tabs.addTab ("Tone Edit", tabBackground, new ToneEditComponent (transmitter), true);
     addAndMakeVisible (tabs);
 
     setSize (1500, 900);

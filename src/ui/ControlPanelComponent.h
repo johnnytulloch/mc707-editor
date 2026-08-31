@@ -15,7 +15,7 @@ class ControlPanelComponent : public juce::Component,
                                private juce::Timer
 {
 public:
-    ControlPanelComponent();
+    explicit ControlPanelComponent (CCTransmitter& transmitter);
     ~ControlPanelComponent() override;
 
     void paint (juce::Graphics&) override;
@@ -27,7 +27,10 @@ private:
     void timerCallback() override;
     void updateLcd (const juce::String& paramLabel, int value);
 
-    CCTransmitter transmitter;
+    // Shared with the rest of the app (owned by MainComponent) -- MC-707's
+    // MIDI output is exclusive on Windows, so there is only ever one
+    // connection, not one per tab.
+    CCTransmitter& transmitter;
 
     juce::Label titleLabel { {}, "GROOVEBOX MC-707" };
     juce::Label subtitleLabel { {}, "MIDI-EDITOR / REMOTE" };

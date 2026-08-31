@@ -379,3 +379,31 @@ moving to the next field. `tools/write_field.py` (new) is the non-interactive re
 helper used throughout — same safety posture as `dt1_write_test.py` but scriptable without a
 blocking stdin prompt, since audible/visual confirmation now happens via the user's own reports
 rather than the script's own `input()`.
+
+## M3 pilot — Tone Edit tab, first real SysEx UI in the app (2026-09-01)
+
+Built the app's first real SysEx read/write panel (`src/ui/ToneEditComponent`, new "Tone Edit" tab):
+5 controls (Attack/Decay/Sustain/Release/Pan, the AMP section confirmed above) for a selectable
+Track (1-8) / Partial (1-4), addresses/offsets/ranges looked up from `data/zencore-map.json` at
+runtime (embedded via JUCE `BinaryData`, see `CMakeLists.txt`) rather than hardcoded — see
+`docs/`/`CLAUDE.md`'s "parameter map is data" rule. New supporting pieces: `SysExCodec.h` (RQ1/DT1
+build + checksum + uint7/nibble2/nibble4 encode/decode, ported from `tools/mc707.py`),
+`ZenCoreAddressing.{h,cpp}` (7-bit-carry slot addressing, ported from `tools/zencore_addressing.py`),
+`ParameterMap.{h,cpp}` (JSON field lookup). `CCTransmitter` was extended (not replaced) to also open
+a matching `MidiInput` and handle sequential RQ1/DT1 request-reply (queued one-at-a-time, per the
+documented reply-address bug making concurrent requests undisambiguatable) — hoisted out of
+`ControlPanelComponent` into `MainComponent` so every tab shares the one connection, since MC-707's
+MIDI output is confirmed exclusive on Windows (a second independent connection attempt fails
+outright).
+
+**Tested live, all 5 controls confirmed working end-to-end** (Track 1, Partial 1): Refresh correctly
+reads and populates real current values from the device; moving each slider produces an audible
+change on Attack/Decay/Sustain/Release, and a confirmed pan shift on Pan.
+
+**New device quirk found during this test:** the on-device Sound Edit screen does **not** live-update
+its own displayed value while a SysEx write lands on the parameter it's currently showing — the
+sound changes immediately (confirmed audible), but the on-screen number stays stale until you back
+out of the edit screen and re-enter it, at which point it redraws with the correct, current value.
+Not a bug in the app — a display-refresh characteristic of the device itself. Worth remembering for
+any future closed-loop UI test: don't conclude a write failed just because the number on-screen
+didn't move; exit/re-enter (or listen) to check.
