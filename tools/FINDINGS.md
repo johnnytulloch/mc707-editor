@@ -131,3 +131,52 @@ anything CH1–16 on the system settings screen, so the app should not hardcode 
 `mc707.safe_close()` runs closes in a timeout-bounded daemon thread and every script force-exits
 via `os._exit()` at the end rather than relying on normal interpreter shutdown. If you hit a hang
 again, check for orphaned `python.exe` processes holding the MIDI port before re-running.
+
+## Track tone/patch selection — Bank Select + Program Change confirmed NOT working (2026-08-31)
+
+Tested whether a track's active tone (patch) can be remotely selected the same way Scene and Clip
+are — sent Bank Select (CC0 MSB / CC32 LSB) + Program Change on Track 1's channel (1), current
+patch "5th DLA Pad":
+- Program Change alone, values 0/10/20/40/60/80/100/120 — no change.
+- Bank MSB 1/2/3/5/10/87 (LSB 0) with Program Change 0 — no change.
+
+User watched the device screen throughout both sweeps. **Confirmed: standard Bank Select + Program
+Change does not remotely change a track's tone.** This lines up with what web research on the
+official update docs and community reports (Roland Clan forums) suggested: the MC-707's Bank/PC-via-MIDI
+feature is for the device *transmitting* MSB/LSB/PGM per-clip to control *external* gear, not for
+receiving a remote tone change to its own tracks. Scene and Clip both work via received Program
+Change (confirmed earlier) — track tone selection does not follow the same pattern.
+
+**Follow-up SysEx discovery attempt (same session, after creating a fresh project for a clean
+baseline):** identified Track 1's actual Track-Tone address as `0x30200000` (distinct from
+`0x30000000`, which is Clip 1's tone — confirmed by name match, "5th DLA Pad" then "INIT TONE"
+after the fresh project). Read a 54-byte Tone Common block and compared byte-by-byte between two
+different tones ("5th DLA Pad" vs "INIT TONE") to find bytes that actually *differ* between
+different-sounding patches (a necessary property for any real type/category/preset field):
+
+| Offset | "5th DLA Pad" | "INIT TONE" | Differs? |
+|--------|---------------|-------------|----------|
+| `+0x15` | `69` | `64` | yes (Level, already known) |
+| `+0x1F` | `00` | `0C` | yes |
+| `+0x21` | `01` | `00` | yes |
+| `+0x26` | `03` | `04` | yes |
+| `+0x27` | `0C` | `09` | yes |
+| `+0x28` | `02` | `02` | **no** |
+| `+0x29` | `02` | `02` | **no** |
+
+Tried writing to the two most promising differing candidates:
+- `+0x27` (write `0x00`): **rejected** — read back unchanged (`0x0C`/`0x09` depending on project).
+- `+0x26` (write `0x02`): **rejected** — read back unchanged (`0x04`).
+
+Both writes were silently ignored by the device (no error, just no effect on read-back — exactly
+the failure mode the brief warns about: "never assume a write succeeded without reading back").
+`+0x28`/`+0x29` were ruled out separately — a value sweep (0/1/3/5/8) produced no confirmed audible
+change, consistent with them being identical across genuinely different tones above.
+
+**Conclusion: remote patch/tone-bank selection does not appear achievable via simple SysEx byte
+writes on this device.** The two candidate bytes that actually differ between different tones are
+both write-protected — consistent with tone type/category being structural data that requires an
+atomic bulk operation (like the on-device Sound Browser performs) rather than a single-byte DT1
+write. Not pursued further without a different approach (e.g. reviewing `mcpoker`/`mctools_basic`
+source for anything relevant, or a full preset-dump write via `.SVZ` data per JDTools — a much
+bigger undertaking requiring the actual ROM preset data, which isn't available to us).
