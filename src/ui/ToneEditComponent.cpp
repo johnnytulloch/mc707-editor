@@ -17,7 +17,7 @@ namespace
     // Mode ADSR view maps Attack->Time1, Decay->Time3 (not Time2),
     // Sustain->Level3 (not Level0/1/2), Release->Time4 -- true for AMP and
     // FILTER envelopes alike.
-    constexpr std::array<ControlSpec, 11> kControlSpecs { {
+    constexpr std::array<ControlSpec, 17> kControlSpecs { {
         { "AMP",    "ATTACK",  "partial_amp_env", "TVA Env Time1" },
         { "AMP",    "DECAY",   "partial_amp_env", "TVA Env Time3" },
         { "AMP",    "SUSTAIN", "partial_amp_env", "TVA Env Level3" },
@@ -29,6 +29,16 @@ namespace
         { "FILTER", "DECAY",   "partial_filter_env", "TVF Env Time3" },
         { "FILTER", "SUSTAIN", "partial_filter_env", "TVF Env Level3" },
         { "FILTER", "RELEASE", "partial_filter_env", "TVF Env Time4" },
+        // Note: this is the ZCore-native partial LFO block, which turned out
+        // to be the on-device "LFO 2" tab, not "LFO 1" (which lives in a
+        // separate, out-of-scope Model Expansion structure -- see
+        // tools/FINDINGS.md "LFO 1 / MDLSYN0 -- resolved as out of scope").
+        { "LFO",    "WAVE",    "partial_lfo", "Waveform" },
+        { "LFO",    "RATE",    "partial_lfo", "Rate" },
+        { "LFO",    "PITCH",   "partial_lfo", "Pitch Depth" },
+        { "LFO",    "CUTOFF",  "partial_lfo", "TVF Depth" },
+        { "LFO",    "AMP",     "partial_lfo", "TVA Depth" },
+        { "LFO",    "PAN",     "partial_lfo", "PAN Depth" },
     } };
 }
 

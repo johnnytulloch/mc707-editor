@@ -407,3 +407,32 @@ out of the edit screen and re-enter it, at which point it redraws with the corre
 Not a bug in the app — a display-refresh characteristic of the device itself. Worth remembering for
 any future closed-loop UI test: don't conclude a write failed just because the number on-screen
 didn't move; exit/re-enter (or listen) to check.
+
+Added a FILTER section the same way right after (Cutoff, Resonance, Filter Envelope ADSR) — all
+already device-confirmed, no new discovery needed. Confirmed working live. Also hit and fixed a
+real bug during this: `EditControl` holds a `juce::Slider`/`Label`, which are non-copyable *and*
+non-movable, so `std::vector<EditControl>` can't work at all (not even `reserve()` + `emplace_back()`
+— the container's move-construction requirement is checked at compile time regardless of whether a
+reallocation ever happens at runtime) — switched to `std::vector<std::unique_ptr<EditControl>>`.
+
+## LFO 1 / MDLSYN0 — resolved as out of scope (2026-09-01)
+
+Chased the "LFO 1" mystery (see "M2 audible pass, round 1" above) one step further before parking
+it. The official doc has a **completely separate top-level structure, `[MDLSYN0]` ("Analog Synth
+Model Parameter")**, referenced from the Jupiter-Xm's own top-level address map (`3.Parameter
+Address Map`) at `02 1T 00 00` ("Temporary Tone Analog Synth Model (01-04)") — entirely outside the
+ZCore tone space (`02 0T 00 00` on Jupiter-Xm, `0x30xxxxxx` on the MC-707) we've been working in all
+session. `MDLSYN0` contains a `Model` field (`---, JP8, JX8P, JUNO106, SH101` — Roland's "Model
+Expansion" analog-modeled synths) immediately followed by `LFO WAVE FORM` / `LFO RATE` / `LFO DELAY
+TIME` — almost certainly "LFO 1". The tone used for testing all session, "Ax Piano", is very likely
+one of these Model Expansion tones (an entirely separate synth-modeling layer, layered alongside
+the regular ZEN-Core/ZCore PCM engine whose parameters we've been mapping).
+
+**Decision: not pursued.** Locating `MDLSYN0`'s real address on the MC-707 would require a fresh,
+open-ended scan of a region we haven't touched at all (Jupiter-Xm's own top-level scheme doesn't
+transfer directly — the MC-707 already proved to use its own distinct top-level addressing for
+ZCore). User explicitly scoped the project to **ZCore tones only** going forward. The `partial_lfo`
+block already mapped and device-confirmed (6 fields: Waveform, Rate, Pitch/TVF/TVA/PAN Depth) is a
+genuine ZCore/ZEN-Core parameter (not MDLSYN0) and stays in scope — it's simply not literally what
+the on-device "LFO 1" tab edits for a Model Expansion tone. `data/zencore-map.json`'s existing note
+on `partial_lfo` already documents this distinction accurately; no changes needed there.
