@@ -17,7 +17,7 @@ namespace
     // Mode ADSR view maps Attack->Time1, Decay->Time3 (not Time2),
     // Sustain->Level3 (not Level0/1/2), Release->Time4 -- true for AMP and
     // FILTER envelopes alike.
-    constexpr std::array<ControlSpec, 17> kControlSpecs { {
+    constexpr std::array<ControlSpec, 21> kControlSpecs { {
         { "AMP",    "ATTACK",  "partial_amp_env", "TVA Env Time1" },
         { "AMP",    "DECAY",   "partial_amp_env", "TVA Env Time3" },
         { "AMP",    "SUSTAIN", "partial_amp_env", "TVA Env Level3" },
@@ -39,6 +39,13 @@ namespace
         { "LFO",    "CUTOFF",  "partial_lfo", "TVF Depth" },
         { "LFO",    "AMP",     "partial_lfo", "TVA Depth" },
         { "LFO",    "PAN",     "partial_lfo", "PAN Depth" },
+        // No RELEASE: the on-device Easy Mode PENV screen only shows
+        // Depth/Attack/Decay/Sustain -- Time4 wasn't confirmed and isn't
+        // reachable via that closed-loop method the way FENV/AENV's was.
+        { "PENV",   "DEPTH",   "partial_pitch_env", "Pitch Env Depth" },
+        { "PENV",   "ATTACK",  "partial_pitch_env", "Pitch Env Time1" },
+        { "PENV",   "DECAY",   "partial_pitch_env", "Pitch Env Time3" },
+        { "PENV",   "SUSTAIN", "partial_pitch_env", "Pitch Env Level3" },
     } };
 }
 
