@@ -241,7 +241,18 @@
         { "offset": "0x1A", "size": 1, "encoding": "uint7", "name": "EQ Switch", "group": "eq", "range": [0, 1], "display": "OFF, ON", "validation": "device-confirmed", "note": "Confirmed 2026-09-01: read matched on-device SW=OFF; wrote 1 via SysEx, user confirmed on-device display updated to ON; restored to OFF. See tools/FINDINGS.md." }
       ]
     },
-    "tone_mfx": { "relative_offset": "0x000100", "size": null, "validation": "unvalidated", "fields": [], "_note": "Deferred per docs/M2_PLAN.md (93 effect types, a later pass)." },
+    "tone_mfx": {
+      "relative_offset": "0x000100",
+      "size": null,
+      "validation": "unvalidated",
+      "_note": "Only the universal Type/Switch/Send fields are mapped -- the 32 'MFX Parameter N' slots that follow (offset ~0x13+) are deferred per docs/M2_PLAN.md: their meaning is entirely dependent on which of the ~91 effect Types is selected (each type reinterprets the same raw slots as different named parameters, e.g. Type=4 'Low Boost' shows Boost Gain/Freq/Wid + Low/High Gain on-device), so mapping them properly needs a per-type name table this pass doesn't build. MFX CtrlSrc 1+ (modulation control-source assignment, offset 0x04+) also excluded, same reason as the Matrix section -- not yet investigated.",
+      "fields": [
+        { "offset": "0x00", "size": 1, "encoding": "uint7", "name": "Type", "group": "mfx", "range": [0, 90], "display": "91 named effect types -- see the official doc for the full list", "validation": "device-confirmed", "note": "Confirmed 2026-09-01: read 4, on-device TYPE showed a real named effect ('Low Boost') with its own type-specific parameter screen (Boost Gain/Freq/Wid, Low/High Gain), confirming the field. Wrote 0 via SysEx, on-device TYPE updated to 'Thru' (the expected bypass/off type at index 0); restored to 4. See tools/FINDINGS.md." },
+        { "offset": "0x01", "size": 1, "encoding": "uint7", "name": "MFX Switch", "group": "mfx", "range": [0, 1], "display": "OFF, ON", "validation": "device-confirmed", "note": "Confirmed 2026-09-01: read 1, matched on-device SWITCH=ON exactly. See tools/FINDINGS.md." },
+        { "offset": "0x02", "size": 1, "encoding": "uint7", "name": "MFX Chorus Send Level", "group": "mfx", "range": [0, 127], "display": "0 - 127", "validation": "structural", "note": "Read 127 (max). Not independently confirmed against an on-device display this pass (didn't locate a dedicated Chorus Send screen for MFX)." },
+        { "offset": "0x03", "size": 1, "encoding": "uint7", "name": "MFX Reverb Send Level", "group": "mfx", "range": [0, 127], "display": "0 - 127", "validation": "structural", "note": "Read 127 (max). Not independently confirmed against an on-device display this pass (didn't locate a dedicated Reverb Send screen for MFX)." }
+      ]
+    },
     "tone_pmt": { "relative_offset": "0x001000", "size": null, "validation": "unvalidated", "fields": [], "_note": "Deferred per docs/M2_PLAN.md scope for this pass." }
   }
 }

@@ -50,6 +50,17 @@ private:
         int controlCount = 0;
     };
 
+    // Everything below the track/partial selector bar lives here, inside a
+    // Viewport, so the section count can keep growing (LFO, PENV, EQ, MFX...)
+    // without overflowing the window -- it scrolls instead of clipping.
+    struct ContentPanel : public juce::Component
+    {
+        void resized() override;
+        std::vector<std::unique_ptr<EditControl>>* controls = nullptr;
+        std::vector<Section>* sections = nullptr;
+        juce::Label confidenceNote;
+    };
+
     void timerCallback() override; // poll-and-send-on-change, matches TrackStripComponent
     void refreshAll();
     void setStatus (const juce::String& text, juce::Colour colour);
@@ -67,7 +78,9 @@ private:
     juce::ComboBox partialBox;
     juce::TextButton refreshButton { "Refresh" };
     juce::Label statusLabel;
-    juce::Label confidenceNote;
+
+    juce::Viewport viewport;
+    ContentPanel contentPanel;
 
     // EditControl holds a juce::Slider/Label, which are non-copyable and
     // non-movable -- std::vector<EditControl> can't work even with

@@ -17,7 +17,7 @@ namespace
     // Mode ADSR view maps Attack->Time1, Decay->Time3 (not Time2),
     // Sustain->Level3 (not Level0/1/2), Release->Time4 -- true for AMP and
     // FILTER envelopes alike.
-    constexpr std::array<ControlSpec, 25> kControlSpecs { {
+    constexpr std::array<ControlSpec, 27> kControlSpecs { {
         { "AMP",    "ATTACK",  "partial_amp_env", "TVA Env Time1" },
         { "AMP",    "DECAY",   "partial_amp_env", "TVA Env Time3" },
         { "AMP",    "SUSTAIN", "partial_amp_env", "TVA Env Level3" },
@@ -55,6 +55,15 @@ namespace
         { "EQ",     "MID",     "partial_eq", "EQ Mid Gain" },
         { "EQ",     "HIGH",    "partial_eq", "EQ High Gain" },
         { "EQ",     "SW",      "partial_eq", "EQ Switch" },
+        // tone_mfx has one instance per tone (not per-partial) -- computeAddress
+        // still passes the current partialIdx to blockRelativeOffset(), but
+        // "tone_mfx" resolves via the single relative_offset branch there,
+        // ignoring it, so this is correct regardless of which Partial is selected.
+        // Chorus/Reverb Send Level, and the 32 type-dependent MFX Parameter
+        // slots, are intentionally excluded -- see data/zencore-map.json's
+        // tone_mfx._note.
+        { "MFX",    "TYPE",    "tone_mfx", "Type" },
+        { "MFX",    "SW",      "tone_mfx", "MFX Switch" },
     } };
 }
 
@@ -91,6 +100,16 @@ ToneEditComponent::ToneEditComponent (CCTransmitter& transmitterIn)
     addAndMakeVisible (statusLabel);
     setStatus ("Not read yet -- hit Refresh once connected.", juce::Colours::grey);
 
+    // Section count keeps growing (LFO, PENV, EQ, MFX, ...) and no longer
+    // fits a fixed-height window -- everything below the selector bar lives
+    // in contentPanel, scrolled via viewport, instead of being added
+    // straight to "this".
+    contentPanel.controls = &controls;
+    contentPanel.sections = &sections;
+    viewport.setViewedComponent (&contentPanel, false);
+    viewport.setScrollBarsShown (true, false);
+    addAndMakeVisible (viewport);
+
     // juce::Slider/Label/Component are non-copyable and non-movable, so
     // EditControl can't live directly in a std::vector (even reserve()
     // requires move-construction to be well-formed at compile time) --
@@ -107,13 +126,13 @@ ToneEditComponent::ToneEditComponent (CCTransmitter& transmitterIn)
         c.label.setText (spec.label, juce::dontSendNotification);
         c.label.setJustificationType (juce::Justification::centred);
         c.label.setFont (juce::Font (juce::FontOptions (11.0f)));
-        addAndMakeVisible (c.label);
+        contentPanel.addAndMakeVisible (c.label);
 
         if (c.descriptor)
             c.slider.setRange ((double) c.descriptor->rangeLow, (double) c.descriptor->rangeHigh, 1.0);
         else
             c.slider.setEnabled (false); // field not found in the map -- fail visibly, not silently
-        addAndMakeVisible (c.slider);
+        contentPanel.addAndMakeVisible (c.slider);
     }
 
     // Group controls into contiguous runs sharing the same section name
@@ -132,20 +151,20 @@ ToneEditComponent::ToneEditComponent (CCTransmitter& transmitterIn)
         s.heading = std::make_unique<juce::Label> (juce::String(), s.name);
         s.heading->setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
         s.heading->setColour (juce::Label::textColourId, juce::Colours::orange);
-        addAndMakeVisible (*s.heading);
+        contentPanel.addAndMakeVisible (*s.heading);
         s.firstControlIndex = i;
         s.controlCount = 1;
         sections.push_back (std::move (s));
     }
 
-    confidenceNote.setText (
+    contentPanel.confidenceNote.setText (
         "Only Track 1 / Partial 1 individually hardware-confirmed this session. Other tracks and "
         "partials use the same proven addressing formula but are unconfirmed per-slot.",
         juce::dontSendNotification);
-    confidenceNote.setColour (juce::Label::textColourId, juce::Colours::grey);
-    confidenceNote.setFont (juce::Font (juce::FontOptions (11.0f)));
-    confidenceNote.setJustificationType (juce::Justification::centredLeft);
-    addAndMakeVisible (confidenceNote);
+    contentPanel.confidenceNote.setColour (juce::Label::textColourId, juce::Colours::grey);
+    contentPanel.confidenceNote.setFont (juce::Font (juce::FontOptions (11.0f)));
+    contentPanel.confidenceNote.setJustificationType (juce::Justification::centredLeft);
+    contentPanel.addAndMakeVisible (contentPanel.confidenceNote);
 
     startTimerHz (50);
 }
@@ -279,26 +298,47 @@ void ToneEditComponent::resized()
 
     area.removeFromTop (20);
 
+    viewport.setBounds (area);
+    // Width follows the viewport; height is computed by
+    // ContentPanel::resized() itself from section count -- passing the
+    // current height here just triggers that pass, which then calls
+    // setSize() again with the real height once it knows it.
+    contentPanel.setSize (viewport.getWidth(), contentPanel.getHeight());
+}
+
+void ToneEditComponent::ContentPanel::resized()
+{
+    if (controls == nullptr || sections == nullptr)
+        return;
+
     constexpr int controlWidth = 90;
-    constexpr int rowHeight = 210;
+    constexpr int rowHeight = 130;
 
-    for (auto& section : sections)
+    int y = 0;
+    auto width = getWidth();
+
+    for (auto& section : *sections)
     {
-        area.removeFromTop (18);
-        auto headingArea = area.removeFromTop (20);
-        section.heading->setBounds (headingArea);
+        y += 18;
+        section.heading->setBounds (0, y, width, 20);
+        y += 20 + 6;
 
-        auto row = area.removeFromTop (rowHeight);
+        int x = 0;
         for (int i = section.firstControlIndex; i < section.firstControlIndex + section.controlCount; ++i)
         {
-            auto& c = *controls[(size_t) i];
-            auto strip = row.removeFromLeft (controlWidth).reduced (10, 0);
+            auto& c = *(*controls)[(size_t) i];
+            auto strip = juce::Rectangle<int> (x, y, controlWidth, rowHeight).reduced (10, 0);
             c.label.setBounds (strip.removeFromTop (18));
             strip.removeFromTop (4);
             c.slider.setBounds (strip);
+            x += controlWidth;
         }
+        y += rowHeight;
     }
 
-    area.removeFromTop (16);
-    confidenceNote.setBounds (area.removeFromTop (32));
+    y += 16;
+    confidenceNote.setBounds (0, y, width, 32);
+    y += 32 + 16;
+
+    setSize (width, y);
 }
