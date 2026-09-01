@@ -18,26 +18,52 @@ reply-address bug exactly, and a DT1 write to a tone's Level byte produced a con
 silence/restore round trip. Per `PLAN.md`, M1 passing unblocks M2 (parameter map), scoped but not
 yet started — see `docs/M2_PLAN.md`.
 
-**The main UI has been rebuilt as a full 8-channel control-surface panel**, matching a supplied
-mockup of the MC-707's mixer-style layout, built and confirmed working against real hardware. This
-supersedes Phase 1's single 4-slider view and is the shell later "tone editing" work will hang off
-of (not started yet). Still CC/Program-Change only — no SysEx sent from the app.
+**The main UI is a 4-tab app**: Control Panel (8-channel mixer-style control surface, matching a
+supplied mockup, CC/Program-Change only), File Transfer (SD-card SMF copy helper), Clip Matrix
+(8×16 grid for bulk-assigning MIDI files to track/clip slots before copying), and **Tone Edit**
+(new — the app's first real SysEx read/write UI, see below). All four confirmed working against
+real hardware.
+
+**M2 (parameter map) is substantially underway, not "not yet started."** `data/zencore-map.json`
+now maps ~150 fields across 7 ZCore blocks (Tone Common, Tone Partial, Partial Pitch/Filter/Amp
+Envelopes, Partial LFO, Partial EQ, Tone MFX), most at the `device-confirmed` tier (closed-loop
+verified against the on-device display, not just audible testing) — see `tools/FINDINGS.md`'s "M2"
+sections for the full discovery log and methodology. Sub-problem A (tone-slot addressing, all 136
+track/clip slots) is fully solved — see `tools/zencore_addressing.py` and its C++ port. Deliberately
+out of scope / not pursued: MFX's 32 type-dependent parameter slots (each of ~91 effect types
+reinterprets them differently — no per-type name table built), EQ Frequency/Q (raw-to-Hz/Q encoding
+not yet determined), and the "LFO 1" / `MDLSYN0` Model Expansion structure (lives in a completely
+separate, unexplored address region — project is scoped to ZCore tones only per explicit decision).
+
+**M3 has a working pilot.** `src/ui/ToneEditComponent` is a real SysEx-editing panel — Track (1-8) /
+Partial (1-4) selectors, and six labelled sections (AMP/FILTER/LFO/PENV/EQ/MFX, ~27 sliders) that
+read current values on Refresh and write on change, addresses/offsets/ranges all looked up from
+`data/zencore-map.json` at runtime (embedded via JUCE `BinaryData`) — never hardcoded, per the
+convention below. Confirmed working live for every section. Explicitly out of scope for this pilot:
+per-write read-back verification (initial Refresh read covers the safety principle, not every
+single write), clip-tone editing (only a track's own "track sound" slot is addressed so far).
 
 - `CMakeLists.txt` — JUCE via CMake FetchContent (JUCE tag 8.0.6), builds a standalone GUI app
-  target `MC707Editor`.
+  target `MC707Editor`; also a `juce_add_binary_data` target embedding `data/zencore-map.json`.
 - `src/Main.cpp` — JUCE application/window boilerplate.
-- `src/ui/MainComponent.{h,cpp}` — app shell: MIDI output device picker, 8 `TrackStripComponent`s,
-  an LCD-style 2-line readout showing the last-touched param/value, a Scene (1–8) selector. One
-  shared 50Hz timer polls all 8 strips and sends only on change (Phase 1's throttling pattern).
-- `src/ui/TrackStripComponent.{h,cpp}` — one mixer channel strip (Filter/Mod/Porta/Vibrato/FX knob
-  groups, Mute, Fader, Pan, Clip number). Full CC mapping table and the two behavioral calls made
-  (Mute = CC7 pseudo-mute, Clip = Program Change, Scene = interactive but not yet wired — no
-  documented mapping exists) are in `PLAN.md`. Two knobs (Porta Depth, Delay Send) are visible but
-  disabled — no documented CC, built honestly rather than guessed.
-- `src/midi/CCTransmitter.{h,cpp}` — thin wrapper over `juce::MidiOutput`; sends CC/Program Change
-  on an explicit channel per call (no longer single-channel like Phase 1's version). No SysEx here
-  — this is CC-only, which is why it needed none of the brief's M0/M1 discovery work to be useful
-  immediately.
+- `src/ui/MainComponent.{h,cpp}` — app shell hosting the 4 tabs. Owns the one shared
+  `CCTransmitter` (MIDI connection) and passes it by reference into every tab that needs it — the
+  MC-707's MIDI output is exclusive on Windows (confirmed empirically), so only one connection can
+  exist at a time; tabs share it rather than each opening their own.
+- `src/ui/ControlPanelComponent.{h,cpp}` + `src/ui/TrackStripComponent.{h,cpp}` — the control
+  surface (8 `TrackStripComponent`s, LCD readout, Scene selector with user-selectable Control
+  Channel). Full CC mapping table is in `PLAN.md`.
+- `src/ui/ToneEditComponent.{h,cpp}` — the SysEx tone editor pilot described above.
+- `src/midi/CCTransmitter.{h,cpp}` — wraps a `juce::MidiOutput`/`juce::MidiInput` pair: CC/Program
+  Change (Phase 1, unchanged), plus RQ1/DT1 SysEx read/write (M3) — reads are queued and serviced
+  one at a time (the reply-address bug means concurrent requests can't be told apart), writes are
+  fire-and-forget.
+- `src/midi/SysExCodec.h` — pure RQ1/DT1 message building, checksum, and uint7/nibble2/nibble4
+  encode/decode. No MIDI I/O.
+- `src/model/ZenCoreAddressing.{h,cpp}` — the 7-bit-carry tone-slot addressing formula (C++ port of
+  `tools/zencore_addressing.py`).
+- `src/model/ParameterMap.{h,cpp}` — loads `data/zencore-map.json` at runtime, exposes field
+  lookups by block+name. The one place in `/src` that reads the map.
 
 Nothing here is macOS- or Windows-specific — it's plain cross-platform JUCE (`juce::MidiOutput`),
 so it should build and run unmodified with the commands below.
