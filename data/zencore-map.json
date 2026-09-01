@@ -225,6 +225,22 @@
         { "offset": "0x1D", "size": 1, "encoding": "uint7", "name": "PAN Depth", "group": "lfo", "range": [1, 127], "display": "-63 - +63", "validation": "device-confirmed", "note": "Confirmed 2026-08-31 against the on-device 'LFO 2' tab: read raw 70 (=+6), matched the >PAN display exactly. See coverage_note above re: the LFO1-vs-LFO2 naming mismatch." }
       ]
     },
+    "partial_eq": {
+      "relative_offset_per_partial": ["0x003800", "0x003900", "0x003A00", "0x003B00"],
+      "size": 27,
+      "size_hex": "0x1B",
+      "validation": "unvalidated",
+      "fields": [
+        { "offset": "0x00", "size": 4, "encoding": "nibble4", "name": "EQ Low Gain", "group": "eq", "range": [784, 1264], "display": "-24.0 - +24.0 [dB, 0.1dB steps: display = (raw-1024)/10]", "validation": "device-confirmed", "note": "Confirmed 2026-09-01: read matched on-device LOW=0.0dB exactly (raw 1024); wrote 1144 (+12.0dB) via SysEx, user confirmed on-device display updated to +12.0dB; restored to 1024. Display formula (raw-1024)/10 confirmed. See tools/FINDINGS.md." },
+        { "offset": "0x04", "size": 4, "encoding": "nibble4", "name": "EQ Mid Gain", "group": "eq", "range": [784, 1264], "display": "-24.0 - +24.0 [dB, 0.1dB steps: display = (raw-1024)/10]", "validation": "device-confirmed", "note": "Confirmed 2026-09-01: read matched on-device MID=0.0dB exactly (raw 1024). Same field layout/formula as EQ Low Gain, confirmed by direct write test on that sibling field. See tools/FINDINGS.md." },
+        { "offset": "0x08", "size": 4, "encoding": "nibble4", "name": "EQ High Gain", "group": "eq", "range": [784, 1264], "display": "-24.0 - +24.0 [dB, 0.1dB steps: display = (raw-1024)/10]", "validation": "device-confirmed", "note": "Confirmed 2026-09-01: read matched on-device HIGH=0.0dB exactly (raw 1024). Same field layout/formula as EQ Low Gain, confirmed by direct write test on that sibling field. See tools/FINDINGS.md." },
+        { "offset": "0x0C", "size": 4, "encoding": "nibble4", "name": "EQ Low Frequency", "group": "eq", "range": [0, 1023], "display": "20 - 16000 [Hz, nonlinear/log-scaled -- exact raw-to-Hz mapping not yet determined]", "validation": "unvalidated", "note": "Doc gives the display range (20-16000 Hz) but not the raw encoding table; treating raw range as 0-1023 (standard for a nibble4 field) pending live confirmation." },
+        { "offset": "0x10", "size": 4, "encoding": "nibble4", "name": "EQ Mid Frequency", "group": "eq", "range": [0, 1023], "display": "20 - 16000 [Hz, nonlinear/log-scaled -- exact raw-to-Hz mapping not yet determined]", "validation": "unvalidated" },
+        { "offset": "0x14", "size": 4, "encoding": "nibble4", "name": "EQ High Frequency", "group": "eq", "range": [0, 1023], "display": "20 - 16000 [Hz, nonlinear/log-scaled -- exact raw-to-Hz mapping not yet determined]", "validation": "unvalidated" },
+        { "offset": "0x18", "size": 2, "encoding": "nibble2", "name": "EQ Mid Q", "group": "eq", "range": [5, 160], "display": "0.5 - 16.0 [nonlinear -- exact raw-to-Q mapping not yet determined]", "validation": "unvalidated" },
+        { "offset": "0x1A", "size": 1, "encoding": "uint7", "name": "EQ Switch", "group": "eq", "range": [0, 1], "display": "OFF, ON", "validation": "device-confirmed", "note": "Confirmed 2026-09-01: read matched on-device SW=OFF; wrote 1 via SysEx, user confirmed on-device display updated to ON; restored to OFF. See tools/FINDINGS.md." }
+      ]
+    },
     "tone_mfx": { "relative_offset": "0x000100", "size": null, "validation": "unvalidated", "fields": [], "_note": "Deferred per docs/M2_PLAN.md (93 effect types, a later pass)." },
     "tone_pmt": { "relative_offset": "0x001000", "size": null, "validation": "unvalidated", "fields": [], "_note": "Deferred per docs/M2_PLAN.md scope for this pass." }
   }

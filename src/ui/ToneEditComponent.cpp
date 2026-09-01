@@ -17,7 +17,7 @@ namespace
     // Mode ADSR view maps Attack->Time1, Decay->Time3 (not Time2),
     // Sustain->Level3 (not Level0/1/2), Release->Time4 -- true for AMP and
     // FILTER envelopes alike.
-    constexpr std::array<ControlSpec, 21> kControlSpecs { {
+    constexpr std::array<ControlSpec, 25> kControlSpecs { {
         { "AMP",    "ATTACK",  "partial_amp_env", "TVA Env Time1" },
         { "AMP",    "DECAY",   "partial_amp_env", "TVA Env Time3" },
         { "AMP",    "SUSTAIN", "partial_amp_env", "TVA Env Level3" },
@@ -46,6 +46,15 @@ namespace
         { "PENV",   "ATTACK",  "partial_pitch_env", "Pitch Env Time1" },
         { "PENV",   "DECAY",   "partial_pitch_env", "Pitch Env Time3" },
         { "PENV",   "SUSTAIN", "partial_pitch_env", "Pitch Env Level3" },
+        // Gain display formula (raw-1024)/10 = dB; the slider shows the raw
+        // 784-1264 value, not the dB number, same simplification as PENV's
+        // signed fields above -- a nicer display mapping is future polish.
+        // Low/Mid/High Frequency and Mid Q are excluded: their raw-to-Hz/Q
+        // encoding isn't determined yet (see data/zencore-map.json's note).
+        { "EQ",     "LOW",     "partial_eq", "EQ Low Gain" },
+        { "EQ",     "MID",     "partial_eq", "EQ Mid Gain" },
+        { "EQ",     "HIGH",    "partial_eq", "EQ High Gain" },
+        { "EQ",     "SW",      "partial_eq", "EQ Switch" },
     } };
 }
 
