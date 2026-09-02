@@ -10,6 +10,9 @@ namespace
         const char* section;
         const char* label;
         const char* blockId;
+        // "{P}" is replaced with the selected partial number (1-4) at
+        // lookup time, for fields whose *name* (not just their block's
+        // relative offset) varies per partial -- see EditControl::fieldNameTemplate.
         const char* fieldName;
     };
 
@@ -17,7 +20,23 @@ namespace
     // Mode ADSR view maps Attack->Time1, Decay->Time3 (not Time2),
     // Sustain->Level3 (not Level0/1/2), Release->Time4 -- true for AMP and
     // FILTER envelopes alike.
-    constexpr std::array<ControlSpec, 41> kControlSpecs { {
+    constexpr std::array<ControlSpec, 49> kControlSpecs { {
+        // OSC screen, page 1 (SW/COARSE/FINE/VOL) -- SW is tone_pmt's
+        // per-partial "Partial N Switch" (name varies by partial, not just
+        // offset, hence "{P}"); COARSE/FINE/VOL are tone_partial fields
+        // already used elsewhere (Coarse Tune/Fine Tune/Level), just shown
+        // under different labels on this particular screen.
+        { "OSC",    "SW",      "tone_pmt",      "Partial {P} Switch" },
+        { "OSC",    "COARSE",  "tone_partial",  "Coarse Tune" },
+        { "OSC",    "FINE",    "tone_partial",  "Fine Tune" },
+        { "OSC",    "VOL",     "tone_partial",  "Level" },
+        // OSC screen, page 2 (OSC/FORM/PW/PWM) -- the analog-modeling
+        // oscillator layer, in ZCore's own per-tone address space (unlike
+        // the separate out-of-scope MDLSYN0 structure).
+        { "OSC",    "TYPE",    "synth_partial", "OSC Type" },
+        { "OSC",    "FORM",    "synth_partial", "VA Waveform" },
+        { "OSC",    "PW",      "synth_partial", "Pulse Width" },
+        { "OSC",    "PWM",     "synth_partial", "PWM Depth" },
         { "AMP",    "ATTACK",  "partial_amp_env", "TVA Env Time1" },
         { "AMP",    "DECAY",   "partial_amp_env", "TVA Env Time3" },
         { "AMP",    "SUSTAIN", "partial_amp_env", "TVA Env Level3" },
@@ -143,7 +162,16 @@ ToneEditComponent::ToneEditComponent (CCTransmitter& transmitterIn)
         auto& c = *controls.back();
         c.section = spec.section;
         c.blockId = spec.blockId;
-        c.descriptor = parameterMap.findField (c.blockId, spec.fieldName);
+        juce::String fieldName (spec.fieldName);
+        if (fieldName.contains ("{P}"))
+        {
+            c.fieldNameTemplate = fieldName;
+            c.descriptor = resolveDescriptor (c); // resolve once against the default Partial 1 for initial range setup
+        }
+        else
+        {
+            c.descriptor = parameterMap.findField (c.blockId, fieldName);
+        }
 
         c.label.setText (spec.label, juce::dontSendNotification);
         c.label.setJustificationType (juce::Justification::centred);
@@ -213,6 +241,16 @@ uint32_t ToneEditComponent::computeAddress (const juce::String& blockId, const F
     return blockBase + (uint32_t) field.offsetWithinBlock;
 }
 
+std::optional<FieldDescriptor> ToneEditComponent::resolveDescriptor (EditControl& c) const
+{
+    if (c.fieldNameTemplate.isEmpty())
+        return c.descriptor;
+
+    auto partialNumber = partialBox.getSelectedId(); // 1-4
+    auto name = c.fieldNameTemplate.replace ("{P}", juce::String (partialNumber));
+    return parameterMap.findField (c.blockId, name);
+}
+
 void ToneEditComponent::setStatus (const juce::String& text, juce::Colour colour)
 {
     statusLabel.setText (text, juce::dontSendNotification);
@@ -245,6 +283,11 @@ void ToneEditComponent::refreshAll()
     {
         auto& c = *cPtr;
         c.initialized = false; // don't let the timer write stale values while re-reading
+
+        // Re-resolves fields whose name (not just their block's per-partial
+        // offset) depends on the selected partial, e.g. tone_pmt's "Partial
+        // N Switch" -- keeps c.descriptor in sync for timerCallback() too.
+        c.descriptor = resolveDescriptor (c);
         if (! c.descriptor)
             continue;
 

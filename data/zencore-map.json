@@ -93,9 +93,9 @@
       "coverage_note": "Offsets 0x00-0x4F (core mixer/filter fields) plus 0x50-0x73 (Vibrato Sens, Matrix Control slots 1-4) are mapped; block continues further beyond 0x73 (Matrix Destination2-4/Sens2-4 per slot, and whatever follows) -- unexplored.",
       "validation": "unvalidated",
       "fields": [
-        { "offset": "0x00", "size": 1, "encoding": "uint7", "name": "Level", "group": "amp", "range": [0, 127], "display": "0 - 127", "validation": "unvalidated" },
-        { "offset": "0x01", "size": 1, "encoding": "uint7", "name": "Coarse Tune", "group": "pitch", "range": [16, 112], "display": "-48 - 48", "validation": "unvalidated" },
-        { "offset": "0x02", "size": 1, "encoding": "uint7", "name": "Fine Tune", "group": "pitch", "range": [14, 114], "display": "-50 - 50 [cent]", "validation": "unvalidated" },
+        { "offset": "0x00", "size": 1, "encoding": "uint7", "name": "Level", "group": "amp", "range": [0, 127], "display": "0 - 127", "validation": "device-confirmed", "note": "Confirmed 2026-09-02: read matched on-device OSC screen VOL=100 exactly; wrote 80 (0x50) via SysEx, user confirmed on-device VOL updated to 80; restored to 100. This is the on-device OSC screen's 'VOL' field. See tools/FINDINGS.md." },
+        { "offset": "0x01", "size": 1, "encoding": "uint7", "name": "Coarse Tune", "group": "pitch", "range": [16, 112], "display": "-48 - 48", "validation": "device-confirmed", "note": "Confirmed 2026-09-02: read 64, matched on-device OSC screen COARSE=0 exactly (display = raw-64). This is the on-device OSC screen's 'COARSE' field. See tools/FINDINGS.md." },
+        { "offset": "0x02", "size": 1, "encoding": "uint7", "name": "Fine Tune", "group": "pitch", "range": [14, 114], "display": "-50 - 50 [cent]", "validation": "device-confirmed", "note": "Confirmed 2026-09-02: read 64, matched on-device OSC screen FINE=0cen exactly (display = raw-64). This is the on-device OSC screen's 'FINE' field. See tools/FINDINGS.md." },
         { "offset": "0x03", "size": 4, "encoding": "nibble4", "name": "Random Pitch Depth", "group": "pitch", "range": [0, 1200], "display": "0 - 1200 [cent]", "validation": "unvalidated" },
         { "offset": "0x07", "size": 1, "encoding": "uint7", "name": "Pan", "group": "amp", "range": [0, 127], "display": "L64 - 63R", "validation": "device-confirmed", "note": "Confirmed 2026-08-31 on Track 1's track-sound slot, Partial 1: user set on-device SOUND EDIT > AMP > PAN PLT1 to L64, read back 0x00 (exact match); then wrote 0x40 via SysEx, user confirmed the on-device PLT1 display updated to center. Full bidirectional closed-loop confirmation -- distinct from Tone Common's own Pan (+0x16 in that block), which is NOT the same as this per-partial pan or the Mixer screen's pan (see that field's note). See tools/FINDINGS.md." },
         { "offset": "0x08", "size": 2, "encoding": "nibble2", "name": "Pan Keyfollow", "group": "amp", "range": [28, 228], "display": "-100 - +100", "validation": "unvalidated" },
@@ -280,6 +280,29 @@
         { "offset": "0x03", "size": 1, "encoding": "uint7", "name": "MFX Reverb Send Level", "group": "mfx", "range": [0, 127], "display": "0 - 127", "validation": "structural", "note": "Read 127 (max). Not independently confirmed against an on-device display this pass (didn't locate a dedicated Reverb Send screen for MFX)." }
       ]
     },
-    "tone_pmt": { "relative_offset": "0x001000", "size": null, "validation": "unvalidated", "fields": [], "_note": "Deferred per docs/M2_PLAN.md scope for this pass." }
+    "tone_pmt": {
+      "relative_offset": "0x001000",
+      "size": null,
+      "validation": "unvalidated",
+      "_note": "One instance per tone (not per-partial), but holds one 9-byte entry per partial (Velocity Control, PMT Level Curve, Partial Switch, KeyRange Lower/Upper, KeyFade Lower/Upper, VeloRange Lower/Upper, ...) at relative offsets 0x02/0x0B/0x14/0x1D for partials 1-4 respectively -- only Partial Switch is mapped so far, as 4 separately-named fields (no per-partial field-offset mechanism in ParameterMap yet, unlike relative_offset_per_partial for whole blocks).",
+      "fields": [
+        { "offset": "0x02", "size": 1, "encoding": "uint7", "name": "Partial 1 Switch", "group": "wave", "range": [0, 1], "display": "OFF, ON", "validation": "device-confirmed", "note": "Confirmed 2026-09-02: read 1 (ON), matched on-device OSC screen SW=ON exactly. This is the on-device OSC screen's 'SW' field for Partial 1. See tools/FINDINGS.md." },
+        { "offset": "0x0B", "size": 1, "encoding": "uint7", "name": "Partial 2 Switch", "group": "wave", "range": [0, 1], "display": "OFF, ON", "validation": "structural", "note": "Offset inferred from the confirmed 9-byte stride from Partial 1 Switch (0x02); not independently read this pass." },
+        { "offset": "0x14", "size": 1, "encoding": "uint7", "name": "Partial 3 Switch", "group": "wave", "range": [0, 1], "display": "OFF, ON", "validation": "structural", "note": "Offset inferred from the confirmed 9-byte stride from Partial 1 Switch (0x02); not independently read this pass." },
+        { "offset": "0x1D", "size": 1, "encoding": "uint7", "name": "Partial 4 Switch", "group": "wave", "range": [0, 1], "display": "OFF, ON", "validation": "structural", "note": "Offset inferred from the confirmed 9-byte stride from Partial 1 Switch (0x02); not independently read this pass." }
+      ]
+    },
+    "synth_partial": {
+      "relative_offset_per_partial": ["0x003E00", "0x003F00", "0x004000", "0x004100"],
+      "size": null,
+      "validation": "unvalidated",
+      "_note": "This is the on-device OSC screen's second page (OSC Type/FORM/PW/PWM) -- the analog-modeling oscillator layer, part of ZCore's own per-tone address space (unlike the separate out-of-scope MDLSYN0 structure). Only offsets 0x00-0x07 are mapped; the block continues further (HPF Cutoff, Filter Type/Slope, ADSREnv Switch, Fat, VCF Type, OSC Attenuator, Cutoff Keyfollow Base Point, VA Waveform Invert Switch, TVF Env Fine Depth, PENV/FENV/AENV LFO Trigger Switch, Pitch Down Depth, VCF Gain Correction -- offsets 0x08-0x1C per the official doc) -- unexplored.",
+      "fields": [
+        { "offset": "0x00", "size": 1, "encoding": "uint7", "name": "OSC Type", "group": "wave", "range": [0, 4], "display": "PCM, VA, PCM-Sync, SuperSAW, Noise", "validation": "device-confirmed", "note": "Confirmed 2026-09-02: read 1 (VA), matched on-device OSC screen 'OSC VA' exactly. See tools/FINDINGS.md." },
+        { "offset": "0x01", "size": 1, "encoding": "uint7", "name": "VA Waveform", "group": "wave", "range": [0, 8], "display": "SAW, SQR, TRI, SIN, RAMP, JUNO, TRI2, TRI3, SIN2", "validation": "device-confirmed", "note": "Confirmed 2026-09-02: read 0 (SAW), matched on-device OSC screen 'FORM SAW' exactly. See tools/FINDINGS.md." },
+        { "offset": "0x06", "size": 1, "encoding": "uint7", "name": "Pulse Width", "group": "wave", "range": [0, 127], "display": "0 - 127", "validation": "device-confirmed", "note": "Confirmed 2026-09-02: read 64, matched on-device OSC screen 'PW 64' exactly; wrote 32 via SysEx, user confirmed on-device PW updated to 32; restored to 64. See tools/FINDINGS.md." },
+        { "offset": "0x07", "size": 1, "encoding": "uint7", "name": "PWM Depth", "group": "wave", "range": [1, 127], "display": "-63 - +63", "validation": "device-confirmed", "note": "Confirmed 2026-09-02: read 64, matched on-device OSC screen 'PWM 0' exactly (display = raw-64). See tools/FINDINGS.md." }
+      ]
+    }
   }
 }

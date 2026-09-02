@@ -37,6 +37,13 @@ private:
         juce::Label label;
         juce::String section;
         juce::String blockId;
+        // Most fields have a fixed name and their per-partial variation is
+        // handled by the block's own relative_offset_per_partial. A few
+        // (e.g. tone_pmt's per-partial "Partial N Switch") instead vary by
+        // *name* per partial -- fieldNameTemplate holds "{P}" for those,
+        // substituted with the selected partial (1-4) on every lookup;
+        // descriptor is then re-resolved instead of cached from construction.
+        juce::String fieldNameTemplate;
         std::optional<FieldDescriptor> descriptor;
         int lastSent = -1;
         bool initialized = false; // guards against writing before the first read completes
@@ -65,6 +72,8 @@ private:
     void refreshAll();
     void setStatus (const juce::String& text, juce::Colour colour);
     uint32_t computeAddress (const juce::String& blockId, const FieldDescriptor& field) const;
+    // Resolves fieldNameTemplate against the currently-selected partial, if set.
+    std::optional<FieldDescriptor> resolveDescriptor (EditControl& c) const;
 
     CCTransmitter& transmitter;
     ParameterMap parameterMap;
