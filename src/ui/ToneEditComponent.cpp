@@ -208,8 +208,9 @@ ToneEditComponent::ToneEditComponent (CCTransmitter& transmitterIn)
     }
 
     contentPanel.confidenceNote.setText (
-        "Only Track 1 / Partial 1 individually hardware-confirmed this session. Other tracks and "
-        "partials use the same proven addressing formula but are unconfirmed per-slot.",
+        "Track 1 (all 4 Partials, all sections) and Tracks 4/8 (AMP section) confirmed live through "
+        "this app. All other tracks use the identical addressing formula, verified independently on "
+        "Tracks 4/8 -- the two tracks needing the 7-bit-carry correction -- but are unconfirmed per-slot.",
         juce::dontSendNotification);
     contentPanel.confidenceNote.setColour (juce::Label::textColourId, juce::Colours::grey);
     contentPanel.confidenceNote.setFont (juce::Font (juce::FontOptions (11.0f)));
