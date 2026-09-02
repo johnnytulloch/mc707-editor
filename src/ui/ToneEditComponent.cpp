@@ -17,7 +17,7 @@ namespace
     // Mode ADSR view maps Attack->Time1, Decay->Time3 (not Time2),
     // Sustain->Level3 (not Level0/1/2), Release->Time4 -- true for AMP and
     // FILTER envelopes alike.
-    constexpr std::array<ControlSpec, 29> kControlSpecs { {
+    constexpr std::array<ControlSpec, 41> kControlSpecs { {
         { "AMP",    "ATTACK",  "partial_amp_env", "TVA Env Time1" },
         { "AMP",    "DECAY",   "partial_amp_env", "TVA Env Time3" },
         { "AMP",    "SUSTAIN", "partial_amp_env", "TVA Env Level3" },
@@ -68,6 +68,24 @@ namespace
         // selection doesn't affect these two fields' address.
         { "STRUCT", "OSC1-2",  "synth_pmt", "Structure1-2" },
         { "STRUCT", "OSC3-4",  "synth_pmt", "Structure3-4" },
+        // Matrix Control: 4 independent "1 source -> up to 4 destinations"
+        // slots (tone_partial block, continuing past 0x4F). Only each
+        // slot's Source + first Destination/Sens pair is mapped -- matches
+        // what the on-device Easy Mode MATRIX screen shows per slot.
+        // Source/Destination1 show as raw enum index numbers, not names --
+        // see data/zencore-map.json's field "display" text for the lists.
+        { "MTX1",   "SRC",     "tone_partial", "Matrix1 Source" },
+        { "MTX1",   "DEST",    "tone_partial", "Matrix1 Destination1" },
+        { "MTX1",   "DEPTH",   "tone_partial", "Matrix1 Sens1" },
+        { "MTX2",   "SRC",     "tone_partial", "Matrix2 Source" },
+        { "MTX2",   "DEST",    "tone_partial", "Matrix2 Destination1" },
+        { "MTX2",   "DEPTH",   "tone_partial", "Matrix2 Sens1" },
+        { "MTX3",   "SRC",     "tone_partial", "Matrix3 Source" },
+        { "MTX3",   "DEST",    "tone_partial", "Matrix3 Destination1" },
+        { "MTX3",   "DEPTH",   "tone_partial", "Matrix3 Sens1" },
+        { "MTX4",   "SRC",     "tone_partial", "Matrix4 Source" },
+        { "MTX4",   "DEST",    "tone_partial", "Matrix4 Destination1" },
+        { "MTX4",   "DEPTH",   "tone_partial", "Matrix4 Sens1" },
     } };
 }
 
