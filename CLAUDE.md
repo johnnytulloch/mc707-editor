@@ -39,8 +39,8 @@ scoped to ZCore tones only per explicit decision).
 
 **M3 has working coverage of every tab on the device's own tone-edit screen.**
 `src/ui/ToneEditComponent` is a real SysEx-editing panel — Track (1-8) / Partial (1-4) selectors,
-and eleven labelled sections (STRUCT, MTX1-4, AMP, FILTER, LFO, PENV, EQ, MFX — 41 controls) that
-read current values on Refresh and write on change, addresses/offsets/ranges all looked up from
+and twelve labelled sections (OSC, STRUCT, MTX1-4, AMP, FILTER, LFO, PENV, EQ, MFX — 49 controls)
+that read current values on Refresh and write on change, addresses/offsets/ranges all looked up from
 `data/zencore-map.json` at runtime (embedded via JUCE `BinaryData`) — never hardcoded, per the
 convention below. Confirmed working live for every section, on real hardware. One real bug was
 caught and fixed along the way: a block-name mismatch between `data/zencore-map.json`'s `blocks`
