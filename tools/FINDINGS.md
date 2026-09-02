@@ -286,6 +286,36 @@ exclusively while running (Windows WinMM ports are single-client) — close the 
 running `validate_map.py` or any of the other `tools/` scripts, same as the existing python.exe
 port-lock gotcha above.
 
+## MIX screen — parked, unresolved (2026-09-02)
+
+The device's Tone Edit screen has a "MIX" tab (LEVEL/PAN/DELAY/REVERB) distinct from AMP/FILTER/
+EQ/MFX, tested on Track 8 Partial 1 ("Ax Fantasia"). LEVEL (127) happened to match `tone_partial`'s
+already-mapped Level field — likely coincidental (both at a common max/default value), not a real
+confirmation, given what follows. PAN, DELAY, and REVERB could not be located:
+
+- DELAY and REVERB both show a **`>` prefix** on-screen (`>DELAY 56`, `>REVERB 87`), unlike LEVEL/PAN
+  — on Roland gear this typically marks a value currently being modulated, showing a live/computed
+  number rather than a stored parameter. Both read back `0x00` from `tone_partial`'s Chorus Send
+  Level (`+0x14`) / Reverb Send Level (`+0x15`), consistent with a modulated live value that a
+  static RQ1 read can't capture (base 0, displayed value reflects active modulation on top).
+- PAN was live-diffed properly (not just formula-guessed): dumped the full `tone_partial` block
+  (`0x00-0x3C`) and `synth_partial` block (`0x00-0x1C`) for Track 8 Partial 1 while PAN read `05R`
+  on-device, then again after the user set PAN to hard right (`63R`) on that same MIX screen and
+  confirmed the on-device display changed — **not a single byte differed** in either dump between
+  the two states. So this PAN is not stored in either block at all. Also ruled out: Tone Common's
+  own Pan (`+0x16`, stayed at `0x40`/center throughout) and the Control Panel's CC10 Pan knob
+  (moving it live did not change the MIX screen's PAN display) — so it isn't the already-known
+  track-level Mixer Pan either (see Tone Partial's Pan field note above for that earlier, separate
+  finding).
+
+**Conclusion: this MIX screen's PAN (and likely DELAY/REVERB) live somewhere not yet located,**
+possibly a genuinely different structure from anything mapped so far, or LEVEL is the only field on
+this screen that's a plain ZCore parameter. Parked by explicit user choice rather than continuing an
+open-ended address hunt. Whoever picks this up next: the diff methodology used here (dump a block,
+change one value via a known on-device edit, dump again, look for the changed byte) is more reliable
+than guessing a display formula and is worth repeating over a wider address range or a different
+block entirely (Tone PMT's un-mapped bytes, or an address region not yet explored at all).
+
 **Not done this pass (left for a follow-up M2 session):** the audible pass (write → listen →
 round-trip → restore) for the priority subset — filter cutoff/resonance, envelope stages, LFO
 rate/depth are all mapped and flagged `unvalidated`/priority-noted in the JSON, but not yet
