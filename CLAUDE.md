@@ -25,23 +25,31 @@ supplied mockup, CC/Program-Change only), File Transfer (SD-card SMF copy helper
 real hardware.
 
 **M2 (parameter map) is substantially underway, not "not yet started."** `data/zencore-map.json`
-now maps ~150 fields across 7 ZCore blocks (Tone Common, Tone Partial, Partial Pitch/Filter/Amp
-Envelopes, Partial LFO, Partial EQ, Tone MFX), most at the `device-confirmed` tier (closed-loop
-verified against the on-device display, not just audible testing) — see `tools/FINDINGS.md`'s "M2"
-sections for the full discovery log and methodology. Sub-problem A (tone-slot addressing, all 136
-track/clip slots) is fully solved — see `tools/zencore_addressing.py` and its C++ port. Deliberately
-out of scope / not pursued: MFX's 32 type-dependent parameter slots (each of ~91 effect types
-reinterprets them differently — no per-type name table built), EQ Frequency/Q (raw-to-Hz/Q encoding
-not yet determined), and the "LFO 1" / `MDLSYN0` Model Expansion structure (lives in a completely
-separate, unexplored address region — project is scoped to ZCore tones only per explicit decision).
+now maps ~170 fields across 8 ZCore blocks (Tone Common, Tone Partial — including its Vibrato Sens
+and 4-slot Matrix Control fields, Partial Pitch/Filter/Amp Envelopes, Partial LFO, Partial EQ, Tone
+MFX, Synth PMT), most at the `device-confirmed` tier (closed-loop verified against the on-device
+display, not just audible testing) — see `tools/FINDINGS.md`'s "M2" sections for the full discovery
+log and methodology. Sub-problem A (tone-slot addressing, all 136 track/clip slots) is fully solved
+— see `tools/zencore_addressing.py` and its C++ port. Deliberately out of scope / not pursued: MFX's
+32 type-dependent parameter slots (each of ~91 effect types reinterprets them differently — no
+per-type name table built), EQ Frequency/Q (raw-to-Hz/Q encoding not yet determined), Matrix
+Destination2-4/Sens2-4 per slot (only each slot's first pair is mapped), and the "LFO 1" / `MDLSYN0`
+Model Expansion structure (lives in a completely separate, unexplored address region — project is
+scoped to ZCore tones only per explicit decision).
 
-**M3 has a working pilot.** `src/ui/ToneEditComponent` is a real SysEx-editing panel — Track (1-8) /
-Partial (1-4) selectors, and six labelled sections (AMP/FILTER/LFO/PENV/EQ/MFX, ~27 sliders) that
+**M3 has working coverage of every tab on the device's own tone-edit screen.**
+`src/ui/ToneEditComponent` is a real SysEx-editing panel — Track (1-8) / Partial (1-4) selectors,
+and eleven labelled sections (STRUCT, MTX1-4, AMP, FILTER, LFO, PENV, EQ, MFX — 41 controls) that
 read current values on Refresh and write on change, addresses/offsets/ranges all looked up from
 `data/zencore-map.json` at runtime (embedded via JUCE `BinaryData`) — never hardcoded, per the
-convention below. Confirmed working live for every section. Explicitly out of scope for this pilot:
-per-write read-back verification (initial Refresh read covers the safety principle, not every
-single write), clip-tone editing (only a track's own "track sound" slot is addressed so far).
+convention below. Confirmed working live for every section, on real hardware. One real bug was
+caught and fixed along the way: a block-name mismatch between `data/zencore-map.json`'s `blocks`
+and `meta.block_relative_offsets` tables silently resolved to a wrong-but-plausible address instead
+of failing — `ParameterMap::blockRelativeOffset()` now `jassert`s on that class of mismatch.
+Explicitly out of scope for this pilot: per-write read-back verification (initial Refresh read
+covers the safety principle, not every single write), clip-tone editing (only a track's own "track
+sound" slot is addressed so far), and a nicer display mapping for enum/dB/signed fields (sliders
+currently show raw byte values, not the on-device unit).
 
 - `CMakeLists.txt` — JUCE via CMake FetchContent (JUCE tag 8.0.6), builds a standalone GUI app
   target `MC707Editor`; also a `juce_add_binary_data` target embedding `data/zencore-map.json`.
