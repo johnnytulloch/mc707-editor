@@ -29,7 +29,17 @@ ParameterMap::ParameterMap()
 
 int ParameterMap::blockRelativeOffset (const juce::String& blockId, int partialIdx) const
 {
-    auto offsets = root.getProperty ("meta", {}).getProperty ("block_relative_offsets", {}).getProperty (blockId, {});
+    auto offsetsHolder = root.getProperty ("meta", {}).getProperty ("block_relative_offsets", {});
+    auto offsets = offsetsHolder.getProperty (blockId, {});
+
+    // A block name that exists under "blocks" but has no matching entry
+    // here (e.g. a typo, or the two getting renamed out of sync) would
+    // otherwise silently resolve to offset 0 -- a wrong-but-plausible
+    // address that's easy to miss until a field reads/writes garbage. Hit
+    // this exact bug once already (blocks.tone_synth_pmt vs this table's
+    // "synth_pmt", no "tone_" prefix) -- fail loudly instead next time.
+    jassert (offsets.isString() || offsets.isArray());
+
     if (auto* arr = offsets.getArray())
     {
         auto idx = juce::jlimit (0, arr->size() - 1, partialIdx);

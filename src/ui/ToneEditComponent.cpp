@@ -17,7 +17,7 @@ namespace
     // Mode ADSR view maps Attack->Time1, Decay->Time3 (not Time2),
     // Sustain->Level3 (not Level0/1/2), Release->Time4 -- true for AMP and
     // FILTER envelopes alike.
-    constexpr std::array<ControlSpec, 27> kControlSpecs { {
+    constexpr std::array<ControlSpec, 29> kControlSpecs { {
         { "AMP",    "ATTACK",  "partial_amp_env", "TVA Env Time1" },
         { "AMP",    "DECAY",   "partial_amp_env", "TVA Env Time3" },
         { "AMP",    "SUSTAIN", "partial_amp_env", "TVA Env Level3" },
@@ -64,6 +64,10 @@ namespace
         // tone_mfx._note.
         { "MFX",    "TYPE",    "tone_mfx", "Type" },
         { "MFX",    "SW",      "tone_mfx", "MFX Switch" },
+        // synth_pmt is one instance per tone, like tone_mfx -- Partial
+        // selection doesn't affect these two fields' address.
+        { "STRUCT", "OSC1-2",  "synth_pmt", "Structure1-2" },
+        { "STRUCT", "OSC3-4",  "synth_pmt", "Structure3-4" },
     } };
 }
 

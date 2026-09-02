@@ -241,6 +241,18 @@
         { "offset": "0x1A", "size": 1, "encoding": "uint7", "name": "EQ Switch", "group": "eq", "range": [0, 1], "display": "OFF, ON", "validation": "device-confirmed", "note": "Confirmed 2026-09-01: read matched on-device SW=OFF; wrote 1 via SysEx, user confirmed on-device display updated to ON; restored to OFF. See tools/FINDINGS.md." }
       ]
     },
+    "synth_pmt": {
+      "relative_offset": "0x003D00",
+      "size": null,
+      "validation": "unvalidated",
+      "_note": "One instance per tone (not per-partial). This is the STRUCT tab on the device's Easy Mode tone-edit screen -- describes how partial pairs 1-2 and 3-4 interact (independent, oscillator sync, ring mod, cross mod). Only the two Structure fields and the two directly-adjacent RING Level fields are mapped; further fields (RING OSC1/OSC2/OSC3/OSC4 Level and beyond, per the official doc) are unexplored.",
+      "fields": [
+        { "offset": "0x00", "size": 1, "encoding": "uint7", "name": "Structure1-2", "group": "struct", "range": [0, 4], "display": "OFF, SYNC, RING, XMOD, XMOD2", "validation": "device-confirmed", "note": "Confirmed 2026-09-02: read matched on-device OSC1-2=OFF exactly; wrote 1 via SysEx, user confirmed on-device display updated to SYNC; restored to OFF (raw 0). See tools/FINDINGS.md." },
+        { "offset": "0x01", "size": 1, "encoding": "uint7", "name": "Structure3-4", "group": "struct", "range": [0, 4], "display": "OFF, SYNC, RING, XMOD, XMOD2", "validation": "device-confirmed", "note": "Confirmed 2026-09-02: read matched on-device OSC3-4=OFF exactly (raw 0). Not independently write-tested (same field layout/enum as Structure1-2, which was). See tools/FINDINGS.md." },
+        { "offset": "0x02", "size": 1, "encoding": "uint7", "name": "RING1-2 Level", "group": "struct", "range": [0, 127], "display": "0 - 127", "validation": "structural", "note": "Read 127 (max). Not independently confirmed against an on-device display this pass." },
+        { "offset": "0x03", "size": 1, "encoding": "uint7", "name": "RING3-4 Level", "group": "struct", "range": [0, 127], "display": "0 - 127", "validation": "structural", "note": "Read 127 (max). Not independently confirmed against an on-device display this pass." }
+      ]
+    },
     "tone_mfx": {
       "relative_offset": "0x000100",
       "size": null,
