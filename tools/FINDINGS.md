@@ -286,6 +286,51 @@ exclusively while running (Windows WinMM ports are single-client) — close the 
 running `validate_map.py` or any of the other `tools/` scripts, same as the existing python.exe
 port-lock gotcha above.
 
+## Total Effects (MFX/COMP/EQ) — parked, unresolved (2026-09-02)
+
+Found a second "TOTAL EFFECTS EDIT" screen (tabs: MFX / COMP / EQ), separate from both the per-tone
+MFX already mapped (`tone_mfx`) and the MIX screen mystery above — this is a **global** effects
+chain, not tied to any track/tone. Read the doc structure for all three tabs:
+
+- **EQ = "Master EQ"** (doc section `[Master EQ]`, 15 bytes): Input/Low/Mid1/Mid2/Mid3/High Gain
+  (each 1 byte, range 40-88, `display = raw-64` dB), Low/Mid1/Mid2/Mid3/High Frequency (each 1 byte,
+  enum index 0-29 into a fixed table: 20,25,31,40,50,63,80,100,125,160,200,250,315,400,500,630,800,
+  1000,1250,1600,2000,2500,3150,4000,5000,6300,8000,10000,12600,16000 Hz), Mid1/Mid2/Mid3 Q (each
+  1 byte, enum 0-5: 0.5,1.0,2.0,4.0,8.0,16.0), Switch (1 byte, OFF/ON).
+- **COMP = "Master Comp"** (doc section `[Master Comp]`): a 3-band (Low/Mid/High) compressor, each
+  band with Attack Time, Release Time, Threshold, Ratio, Knee, Output Gain, plus an overall Switch.
+- **MFX** reuses the exact same `[MFX]` structure already mapped for tone-level MFX (Type/Switch/
+  Chorus+Reverb Send/32 type-dependent Parameters) — confirmed by cross-referencing the doc's own
+  top-level map, which references `[MFX]` for "Scene MFX (01-05)" too, the same generic block used
+  in multiple contexts. "Multi Mode Filter" (Filter Type/Tone/Color/Slope, seen live on-device) is
+  just one of the ~91 possible types, same pattern as tone MFX's "Low Boost".
+
+**The catch: these are global "System"-area settings, not ZCore tone data** — completely outside
+the already-solved `0x30xxxxxx` tone-slot address space. Tried to locate the real MC-707 address:
+
+1. Jupiter-Xm's own documented `System` addresses (`00 05 00 00` for Master EQ, `00 06 00 00` for
+   Master Comp) — **no reply at all**, as expected (MC-707's own top-level scheme already proven
+   different from Jupiter-Xm's for ZCore).
+2. `Locriana/mctools_basic`'s own `hack_tools.py::dump_settings()` uses `0x10000000`-`0x10004000`
+   as its "settings" scan region (empirically sourced from the same toolkit that gave us the correct
+   ZCore track-base table) — a strong, non-arbitrary lead. Live-read exact current values off the
+   device's EQ tab (Input Gain +15dB, Low Gain 0dB, Mid1 Gain 0dB, Mid3 Gain +6dB, High Gain +3dB,
+   Low Freq 200Hz, Mid3 Freq 1000Hz, High Freq 5000Hz, Mid3 Q 1.0) and built a 9-byte exact-value
+   signature (`{+0x00:79, +0x01:64, +0x02:64, +0x04:70, +0x05:67, +0x06:10, +0x09:17, +0x0A:24,
+   +0x0D:1}`) via `tools/scan_master_eq.py` (uses `add_7bit_carry` throughout, like all ZCore
+   scanning must — caught the same naive-`+=`-overflow bug the original ZCore scan hit, fixed the
+   same way). Two full scans of the region (a loose range check, then the precise 9-byte signature)
+   both found **zero candidates** across ~4100-11000 collected bytes (the region only responds for
+   roughly its first quarter to third before timing out for the rest, suggesting the "settings"
+   region is smaller than the full `0x4000` `hack_tools.py` scans, or non-contiguous).
+3. Quick probes at a few adjacent/nearby bases (`0x11000000`, `0x12000000`, just past the scanned
+   range) — no reply at any of them.
+
+**Conclusion: not found.** Every motivated lead is exhausted; further search would be unstructured
+guessing across a large address space with no signal to follow. Parked by explicit user choice.
+`tools/scan_master_eq.py` (kept in the repo) is reusable for testing a different candidate region if
+a better lead turns up later — swap `start`/`SIGNATURE` for a new hypothesis.
+
 ## MIX screen — parked, unresolved (2026-09-02)
 
 The device's Tone Edit screen has a "MIX" tab (LEVEL/PAN/DELAY/REVERB) distinct from AMP/FILTER/
