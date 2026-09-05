@@ -48,30 +48,60 @@ int ParameterMap::blockRelativeOffset (const juce::String& blockId, int partialI
     return (int) parseHexAddress (offsets.toString());
 }
 
+namespace
+{
+    FieldDescriptor parseFieldDescriptor (const juce::var& f)
+    {
+        FieldDescriptor d;
+        d.name = f.getProperty ("name", {}).toString();
+        d.offsetWithinBlock = (int) parseHexAddress (f.getProperty ("offset", {}).toString());
+        d.size = (int) f.getProperty ("size", {});
+        d.encoding = f.getProperty ("encoding", {}).toString();
+        if (auto* r = f.getProperty ("range", {}).getArray(); r != nullptr && r->size() >= 2)
+        {
+            d.rangeLow = (int) (*r)[0];
+            d.rangeHigh = (int) (*r)[1];
+        }
+        d.group = f.getProperty ("group", {}).toString();
+        d.validation = f.getProperty ("validation", {}).toString();
+        return d;
+    }
+}
+
 std::optional<FieldDescriptor> ParameterMap::findField (const juce::String& blockId, const juce::String& fieldName) const
 {
     auto fields = root.getProperty ("blocks", {}).getProperty (blockId, {}).getProperty ("fields", {});
     if (auto* arr = fields.getArray())
     {
         for (auto& f : *arr)
-        {
-            if (f.getProperty ("name", {}).toString() != fieldName)
-                continue;
-
-            FieldDescriptor d;
-            d.name = f.getProperty ("name", {}).toString();
-            d.offsetWithinBlock = (int) parseHexAddress (f.getProperty ("offset", {}).toString());
-            d.size = (int) f.getProperty ("size", {});
-            d.encoding = f.getProperty ("encoding", {}).toString();
-            if (auto* r = f.getProperty ("range", {}).getArray(); r != nullptr && r->size() >= 2)
-            {
-                d.rangeLow = (int) (*r)[0];
-                d.rangeHigh = (int) (*r)[1];
-            }
-            d.group = f.getProperty ("group", {}).toString();
-            d.validation = f.getProperty ("validation", {}).toString();
-            return d;
-        }
+            if (f.getProperty ("name", {}).toString() == fieldName)
+                return parseFieldDescriptor (f);
     }
     return std::nullopt;
+}
+
+std::vector<FieldDescriptor> ParameterMap::allFields (const juce::String& blockId) const
+{
+    std::vector<FieldDescriptor> result;
+    auto fields = root.getProperty ("blocks", {}).getProperty (blockId, {}).getProperty ("fields", {});
+    if (auto* arr = fields.getArray())
+        for (auto& f : *arr)
+            result.push_back (parseFieldDescriptor (f));
+    return result;
+}
+
+juce::StringArray ParameterMap::blockIds() const
+{
+    juce::StringArray result;
+    auto blocks = root.getProperty ("blocks", {});
+    if (auto* obj = blocks.getDynamicObject())
+        for (auto& prop : obj->getProperties())
+            result.add (prop.name.toString());
+    return result;
+}
+
+bool ParameterMap::blockIsPerPartial (const juce::String& blockId) const
+{
+    auto offsets = root.getProperty ("meta", {}).getProperty ("block_relative_offsets", {}).getProperty (blockId, {});
+    return offsets.isArray();
 }

@@ -331,6 +331,31 @@ guessing across a large address space with no signal to follow. Parked by explic
 `tools/scan_master_eq.py` (kept in the repo) is reusable for testing a different candidate region if
 a better lead turns up later — swap `start`/`SIGNATURE` for a new hypothesis.
 
+**Revisited 2026-09-03, still not found.** Reading the Jupiter-X/Xm doc's full `3. Parameter Address
+Map` for an unrelated investigation (factory ROM patches, see below) surfaced the same `00 05 00`/
+`00 06 00` Master EQ/Comp offsets already tried in point 1 above — this wasn't new information, but
+re-reading `mctools_basic`'s `sys_ex_comm.py` in full (not just `hack_tools.py`) this time turned up
+something genuinely new: a **confirmed-working** reference address in its own demo code, Track Color
+at `0x10000819` (+`0x200` per track) — re-verified live against this device before acting on it
+(returned `12`, a plausible color index). That's real evidence `0x10000000`+ is genuine structured
+settings memory, motivating a wider retry of the region point 2 above only scanned to `0x10004000`.
+
+Ran `tools/scan_master_eq_wide.py` (100-byte chunks instead of 16, to cover more ground per round
+trip) across `0x10000000`-`0x10077F38` (~490KB of address range). **Still zero candidates.** More
+telling: only ~3.5KB of that ~490KB range actually replied with anything at all — real, structured
+data (matching the Track Color find) is clustered in a narrow band right at the start, and everything
+past roughly `0x10005000` was consistently empty/non-responsive, all the way out to where the scan
+stopped. So the "settings" region isn't secretly bigger than originally scanned — the original
+scan's boundary was already close to the real one. Master EQ isn't in it.
+
+**Genuinely exhausted now**, not just parked on a hunch: both of the two independently-sourced,
+concretely-motivated candidate regions (Jupiter-Xm's literal address, and `mctools_basic`'s own
+settings region, now scanned 30x wider than before) have been tried and ruled out. What's left
+untried, noted for whenever there's a new lead rather than more guessing: whether the device's native
+`TOTAL EFFECTS EDIT` screen is reachable through a different SysEx command class entirely (not
+RQ1/DT1) — would need MIDI-monitoring the device while opening that screen or changing a value on it,
+capturing whatever the device itself sends, rather than more address-space scanning.
+
 ## MIX screen — parked, unresolved (2026-09-02)
 
 The device's Tone Edit screen has a "MIX" tab (LEVEL/PAN/DELAY/REVERB) distinct from AMP/FILTER/
@@ -511,3 +536,277 @@ block already mapped and device-confirmed (6 fields: Waveform, Rate, Pitch/TVF/T
 genuine ZCore/ZEN-Core parameter (not MDLSYN0) and stays in scope — it's simply not literally what
 the on-device "LFO 1" tab edits for a Model Expansion tone. `data/zencore-map.json`'s existing note
 on `partial_lfo` already documents this distinction accurately; no changes needed there.
+
+## Remote patch/tone selection — re-investigated, original negative finding upheld (2026-09-03)
+
+User requested a per-track (×8) Category + Patch Name selector on the Control Panel, backed by
+genuine remote patch loading against the device's full factory ROM set (a static data table, zero
+device interaction to build the list — not a user-curated snapshot library). This reopened **"Track
+tone/patch selection — Bank Select + Program Change confirmed NOT working" (2026-08-31, above)**.
+
+**False start, corrected same day:** an initial retest (Bank Select MSB=87 LSB=92 + Program Change
+4, then 5) appeared to load "A-005" and "A-006 Wub Bass" onto Track 1, visually matching the names
+expected from the Jupiter-Xm MIDI Implementation doc's factory bank table (PR-A = MSB 87, LSB
+92-93). This was written up here as a reversal of the 08-31 finding, gated by a "Rx Bank" device
+setting. **That conclusion was wrong** — see below. Left as a lesson: a match against a predicted
+name is not the same as a controlled test, and doesn't rule out an unrelated mechanism producing
+the same-looking result by coincidence.
+
+**Actual mechanism, confirmed live:** the MC-707's own official
+[MIDI Implementation Chart](https://static.roland.com/assets/media/pdf/MC-707_MIDIImpleChart_eng03_W.pdf)
+states plainly, in a footnote already fetched before the false start above but not read closely
+enough at the time:
+
+> \*2 Scene change (0-127) on control channel, Clip change (0-15) on track channel.
+
+Program Change on a track's own channel selects that track's **clip slot (0-15)** — never the
+track's own base tone. Confirmed decisively two ways:
+1. **Sound Source** (`TONE TRACK SETTING-TRK:n` → GENERAL tab) is a per-track toggle between
+   `TRACK` and `CLIP` — it controls whether the Tone Edit screen (and the audible sound) follows
+   the track's own tone or whichever clip is currently selected. It was sitting on `CLIP` for all
+   of today's testing, which is why Program Change appeared to change the "tone" — it was actually
+   just switching clips, and the clip happened to already contain a tone matching the predicted
+   name (this project's clips 4/5 apparently already had "A-005"/"A-006"-named content saved into
+   them from earlier, unrelated work).
+2. With Sound Source explicitly forced to `TRACK`, Track 1's own tone read **"SysCtrlDeepEcho2"**
+   — unrelated to any bank/PC value tried — and stayed exactly that across every Bank Select + PC
+   combination sent today, including MSB=87/LSB=92 with PC=3, 4, 5, and 100 (100 is outside the
+   valid 0-15 clip range specifically to rule out clip-selection as an explanation — it had zero
+   effect, as expected if Bank Select does nothing on this device). The track's own tone was never
+   once touched.
+
+**Conclusion: the 08-31 finding stands. Remote loading of a factory ROM tone onto a track's own
+tone slot via Bank Select + Program Change is not achievable on the MC-707** — matches 08-31's own
+web research (MC-707's Bank/PC-via-MIDI is for the device *transmitting* per-clip MSB/LSB/PGM to
+control external gear, not receiving a remote track-tone change). The Jupiter-Xm doc's factory bank
+table and "Rx Bank" parameter do not apply here; no such parameter exists on the MC-707 (confirmed
+absent from both its official 121-page Reference Manual and a live, exhaustive photo walkthrough of
+every row of `SYSTEM SETTING → MIDI`).
+
+**A related, genuinely viable mechanism does exist, but doesn't meet the user's stated requirement.**
+Program Change reliably selects a track's clip (0-15, confirmed), and each clip slot has its own
+independently-addressable tone (already fully solved by this project's own M2 addressing work —
+`get_slot_address(track_idx, clip_idx)` for `clip_idx` 0-15). So a "patch selector" could write any
+of our own `data/zencore-map.json`-described tone data into a clip slot via SysEx, then switch to
+it with Program Change. But this writes *our own* tone parameters, not a Roland factory ROM patch —
+loading an actual factory patch this way would require first capturing every factory patch's raw
+SysEx tone bytes (stepping through the Sound Browser once per patch, reading it back), which is
+exactly the "zero device interaction to build the list" the user already ruled out when scoping
+this feature. Parked; revisit only if the user wants to reconsider that constraint.
+
+## Third-party reference: "B67 ZEN EditorLib" confirms addressing, reveals real transfer mechanism (2026-09-03)
+
+User supplied the Quick Start guide and full manual for a commercial third-party MC-707/MC-101 ZEN-Core
+editor/librarian ("B67 ZEN EditorLib", benis.it) for comparison. Two things stand out.
+
+**Independent confirmation of this project's own addressing model, from a completely different codebase:**
+the manual states MC-707 "is able to store and play up to a maximum of 17x8=136 ZEN-Core Tones: each of
+the 8 tracks can store 16 ZEN-Core tones, one per clip, if Sound Source=Clip, [or] 1 ZEN-Core tone if
+Sound source=TRACK" — exactly the 17-slots-per-track (16 clips + 1 track sound) × 8 tracks = 136 model
+`tools/zencore_addressing.py`/`ZenCoreAddressing.{h,cpp}` already implements, arrived at completely
+independently (by reading `mcpoker`/`mctools_basic` source, not this tool). Strong external validation.
+Also independently confirms the **Sound Source=TRACK/CLIP** distinction discovered live earlier today,
+including that it's a genuine, well-known, per-track setting (not something obscure to this session).
+
+**Reveals how real tone loading actually works — and it isn't Bank Select.** The tool never sends Bank
+Select or Program Change to load a tone. It maintains its own tone database and, per its own description,
+"the dialogue between Librarian and Groovebox is in real time and it is possible to transfer each tone to
+MC-101 and MC-707 in a fraction of a second" via a "Send Tone to MC-707" action — i.e. a **direct bulk
+SysEx write of the tone's full parameter block into the selected Track/Clip's tone address**, the same
+category of operation this project's own `ToneEditComponent` already does one field at a time. This
+fully explains why Bank Select never did anything (confirms rather than contradicts the finding just
+above) and, more importantly, means **remote tone loading onto a specific track/clip *is* achievable —
+just via bulk SysEx write to the already-solved slot address, not via MIDI Bank Select/PC.**
+
+**This does not, however, hand us Roland's actual factory ROM patch data.** The tool's bundled library
+is the vendor's own "B67"-branded content (visible throughout the manual's screenshots: "B67 AnPad Big1",
+"B67 JunoDetuned", etc.) plus optional purchased expansion packs (`B67_Collection_X`) and user-imported
+`.svz` files (Zenology Pro / other ZEN-Core-compatible synths' own export format) — not a dump of the
+MC-707's internal PR-A/B/C/D banks. So the "zero device interaction against the real factory ROM" goal
+from the original feature request is still unresolved by this reference; what's now clearly unblocked
+is the "write our own tone library into any track/clip slot" version parked in the section above.
+
+**Missing-functionality scan against this project's current Tone Edit tab**, for future consideration
+(not yet scoped or committed to, just captured while the manual was open):
+- **Bulk tone read/write** ("Groovebox→Editor" / "Send Tone to Synth"): transfer an entire tone's fields
+  in one operation, vs. this app's current per-field read/write. Directly reusable groundwork: iterate
+  `ParameterMap`'s full field list for one address range instead of one field's descriptor.
+- **Macro controls**: drive the same parameter (e.g. Cutoff) across a chosen combination of partials in
+  parallel from one control, rather than editing each partial's copy individually.
+- **Copy/paste**: partial→partial (whole partial, or just its AMP/Filter/Pitch envelope) and MFX
+  effect→clipboard, persisting across tone loads.
+- **PCM wave/sample browsing** (`PCM - Range - Common`): this app has no oscillator *sample* selection
+  UI at all yet (only VA waveform/PW/PWM, per `synth_partial` — PCM partials, wave group/number, aren't
+  mapped in `data/zencore-map.json` at all currently).
+- **Keyboard/Velocity Range** per partial: key range, key fade, velocity range/fade, damp pedal fields —
+  not currently in the map.
+- **Tone/Category naming** (16-char name edit, Category dropdown): this app reads Tone Common's fields
+  but the Tone Edit tab has no name/category editor.
+- **A local tone library/file format** (`.syx` single-tone save/load, or a larger custom bank format):
+  this app has no save/load of a captured tone to/from a local file at all yet — every session is
+  live-device-only, nothing persists locally. Would need bulk-read support (above) as a prerequisite.
+- **Project-level editing**: track EQ, Master Compressor/MFX/EQ — this is the same ground as the parked
+  "Total Effects (MFX/COMP/EQ) — parked, unresolved" section above; the manual doesn't reveal the
+  addresses (it's a black-box binary, not source), so it doesn't unblock that scan, just confirms the
+  feature exists and is user-facing on real hardware.
+Not prioritized or scoped — listed for whenever the user wants to pick the next piece of M3/M4 work.
+
+## Tone Snapshot — bulk read/write, and the `synth_common` gap (2026-09-03)
+
+Built the first item off the missing-functionality scan above: `src/model/ToneSnapshot.{h,cpp}`
+reads/writes every field `data/zencore-map.json` currently declares in one operation (not one field
+at a time), for any track or clip slot, plus save/load to a local JSON file. New `ToneEditComponent`
+"Snapshot" section: Capture / Write To Selection / Save.../ Load..., and a Clip selector (Track Sound
+or Clip 1-16) extending every existing per-field control to clip tones too, not just track sound.
+
+**Write pacing bug, found and fixed:** the first working version fired all ~30 chunk writes in a
+tight loop with no delay. A tone captured from Track 1 and written to Track 4 showed the correct
+Name/Category but was completely silent — `tone_common` (sent first) landed, later chunks
+(oscillator/envelope/partial data) didn't. Matches a documented MC-707 SysEx quirk (the B67 ZEN
+EditorLib manual warns its own bulk transfers need pacing for "anomalies... in the SysEx
+implementation of MC-101 and MC-707"). Fixed with `PacedSnapshotWriter`, a self-deleting
+`juce::Timer`-driven helper sending one chunk per 40ms tick instead of a synchronous loop (see
+`ToneSnapshot.cpp`). 40ms is a first, untuned guess kept in `kWriteIntervalMs` — revisit if a future
+cross-track write is unreliable again.
+
+**Second bug, same symptom, different cause: the real `synth_common` gap.** Even after pacing was
+fixed, a self-write (Track 1 → Track 1) worked but a cross-write (Track 1 → Track 4) was still
+silent — with every currently-mapped byte confirmed identical between source and destination (a
+direct diff of two saved snapshot files, zero differences across all 32 chunks). Decisive test: the
+device's own **native** Track Edit → SOUND → COPY/PASTE (no app involved) correctly transferred
+sound Track 1 → Track 4, proving Track 4 itself was never the problem, and that the native mechanism
+moves something our snapshot didn't. That pointed at `synth_common` (`meta.block_relative_offsets`,
+relative offset `0x003C00`) — a block address that's been known since M2 but was never given any
+`fields`, so it silently never appeared in the chunk plan at all. A self-write "works" trivially
+(every unwritten byte is simply left as its own already-correct value); a cross-write leaves the
+destination track's own stale `synth_common` sitting next to the newly-written oscillator/partial
+data from a different tone, which is what actually broke playback.
+
+Added `blocks.synth_common` with a first-guess 32-byte size — capturing it then failed with a
+timeout-looking error. Direct RQ1 probes (`tools/mc707.py`, bypassing the app) at sizes
+8/9/10/12/16/20/24/32 found the real cause: **the device itself caps the reply at exactly 9 bytes
+for this address, for every requested size from 9 up** (8 gets 8, everything ≥9 gets exactly 9) —
+not a timeout, a short reply our size-match check correctly rejected. Corrected the map to `size: 9`
+(`validation: "structural"` — device-confirmed *extent*, not yet confirmed *meaning*; the 9 bytes are
+declared as generic `Reserved 0`-`8` pending discovery). **After this fix, the cross-track write
+produces correct sound**, confirmed live, matching the native copy/paste result exactly.
+
+Takeaways for future block-boundary discovery: RQ1 requesting more than a block's real size doesn't
+error or hang — the device just silently truncates the reply to what actually exists, which is
+itself a legitimate, fast way to *find* an unknown block's true size (sweep sizes until the reply
+stops growing), used here for the first time this session. Worth remembering next time a currently
+`size: null` block (`tone_mfx`, `tone_pmt`, `synth_pmt`, `synth_partial`, `tone_partial`,
+`partial_lfo`) needs its real extent nailed down instead of only its individually-named fields.
+
+**Writing to a Clip slot — retested 2026-09-05, could not reproduce the original failure.** The
+original report (Track 1 Track Sound → Track 1 Clip 2 not producing correct playback) was parked
+undiagnosed. Retested methodically: (1) read-only check on Clip 1 — real data, no bug; (2) self-write
+Track 1 / Clip 1 → itself — worked; (3) the actual failing scenario, Track 1 Track Sound → Track 1
+Clip 1 — captured both sides to files and diffed byte-for-byte (all 33 chunks, name, and category):
+**zero differences**, and the user confirmed Clip 1 sounds correct afterward. Clip writing is not
+broken. The original failure was very likely a transient connectivity hiccup, not a code bug — this
+exact session hit several unrelated timeout-then-clean-retry cases today (the Name field write test,
+a plain RQ1 read that failed twice then succeeded identically on the third try) with no code changes
+in between, so a one-off failure during the original clip test isn't surprising in hindsight. No
+code or map change was needed here; this note replaces the earlier "parked, undiagnosed" one.
+
+## Factory ROM patch browsing — no direct-read address found, likely architecturally closed (2026-09-03)
+
+Revisited the parked "full ROM patch browser" goal with a concrete proposal: get the official factory
+patch list (name + category, zero device interaction) and look for a systematic relationship to some
+SysEx address or numbering scheme, so only a handful of spot-checks would be needed to validate it
+rather than manually capturing all ~1000+ patches. Two inputs: the official
+[MC-707 Sound List](https://static.roland.com/assets/media/pdf/MC-707_SoundList_multi01_W.pdf) (Bank
+A #1 is literally "SysCtrlDeepEcho2" — the exact name captured from Track 1's track-sound slot during
+today's Tone Snapshot debugging, confirming our existing RQ1 read mechanism *does* return real,
+byte-accurate factory ROM data whenever a ROM patch happens to already be sitting in a readable slot);
+and the Jupiter-X/Xm MIDI Implementation doc's full "3. Parameter Address Map" (§3, not just the Bank
+Select subsection used earlier), read in full for the first time this session.
+
+**No separate, directly-readable address block for factory/preset tones exists in that map.** It
+declares exactly two tone-shaped regions: `Temporary Tone` (`02 00 00 00`+, the live edit buffer —
+this is the ZCore address family our own addressing already lives in) and `User Tone` (`50 00 00 00`+,
+the writable/savable 512-slot user bank, one tone per `0x20000` — the same stride our own
+`tone_alignment` already uses, interesting but a different, writable region). PR-A/B/C/D and the other
+factory banks appear *only* as Bank Select CC values, never as their own address range — meaning even
+on Jupiter-X/Xm, a factory patch is only reachable by loading it into Temporary Tone via Bank
+Select+Program Change, exactly the mechanism already proven today to not reach MC-707's track tone
+(Program Change there selects a clip instead — see "Remote patch/tone selection" above).
+
+**Cross-checked against `Locriana/mctools_basic`'s own source** (`zen_core_tools.py`, `sys_ex_comm.py`,
+`midi_if.py`, `hack_tools.py` — downloaded and grepped for `preset`/`rom`/`factory`/`bank`): nothing
+beyond the standard Bank Select CC constants already known, and no distinct ROM/preset address logic
+anywhere. This is a real, hands-on hacking effort on this exact device (the same source that gave us
+the track-base table and the Total Effects candidate region) — if an undocumented direct-read path
+existed and were easy to find, this is the kind of project that plausibly would have already found it.
+
+**Conclusion: not just impractical, likely architecturally closed** — there doesn't appear to be a
+number scheme to spot-check, because there's no evidence a fixed address for factory ROM content
+exists at all on this product family; it seems to only ever get reached by a load-into-edit-buffer
+operation, and MC-707 doesn't expose that operation for its own track tone. Still open: whether the
+native `TRK EDIT → SOUND → COPY/PASTE` mechanism (confirmed working today, native copy Track 1 → Track
+4) is triggered by some *other* SysEx command class (not RQ1/DT1) that could be scripted — not
+investigated, no evidence either way, would need a fresh capture (e.g. MIDI-monitor the device while
+performing a native copy) rather than more address-map reading.
+
+**Real, unrelated side-discovery worth pursuing separately:** the same address map read for this
+investigation shows a `System` block at `00 00 00 00` (Jupiter-X/Xm numbering) with `Master EQ` at
+offset `00 05 00` and `Master Comp` at `00 06 00` — a completely different region than the
+`0x10000000` area scanned and abandoned in the parked "Total Effects" investigation above (that
+scan's candidate region came from `hack_tools.py`'s own `dump_settings()`, unrelated to this map).
+Not yet translated to an MC-707 address or tested live — MC-707's own top-level scheme is already
+known to differ from Jupiter-X/Xm's (same lesson as the ZCore tone addresses) — but this is a
+genuine, sourced, unexplored lead, not a blind guess, and a much better starting point than the
+region already ruled out.
+
+## MFX Chorus Send Level — second confirmation attempt, still inconclusive (2026-09-03)
+
+Retried closed-loop confirmation of `tone_mfx`'s Chorus Send Level (`+0x02`) on Track 1's track
+sound, previously only `structural` ("didn't locate a dedicated Chorus Send screen for MFX"). Read
+127 (max, matching the earlier note exactly — reproducible). Wrote 64 via SysEx, round-trip
+confirmed at the byte level; user found no on-device display anywhere that changed. Restored to 127
+and tried an audible A/B instead — also no perceptible difference. Checked whether MFX being off
+could explain a null result on both counts: it isn't — MFX Switch read `1` (ON), Type read `32`
+(one of the 91 effect types, not looked up). So this is a genuine dead end by two independent
+methods, not a missed screen or an oversight — something about how this field actually behaves
+(maybe Type-dependent whether Chorus Send matters at all, maybe MC-707's UI just doesn't expose it,
+matching the pattern already seen elsewhere in this map) isn't understood yet. Stays `structural`.
+Reverb Send Level (`+0x03`) wasn't separately retested — same open question likely applies. Next
+attempt, if any: try a different MFX Type known to route through Chorus/Reverb sends audibly, rather
+than retesting the same tone/Type combination a third time.
+
+## Tone Name / Category editing — fully confirmed working (2026-09-03, closed 2026-09-05)
+
+Built off the missing-functionality scan's top pick: `ToneEditComponent` gained a header-row
+`nameEditor` (`juce::TextEditor`, commits on Enter/focus-lost, not the sliders' 50Hz poll-and-send —
+a text field has no natural "diff against last value") and `categorySlider`, reading/writing
+`tone_common`'s Name (ascii, `+0x00`) and Category (uint7, `+0x10`) via the same
+`computeAddress`/`sendSysExRead`/`sendSysExWrite` machinery every other field already uses. New
+`SysExCodec::encodeAscii`/`decodeAscii` (added earlier today during Tone Snapshot, unused until now)
+handle the ascii encoding.
+
+**Reading is fully confirmed working.** First test showed blank Name / Category 0 — but that was a
+one-off transient connectivity issue, not a code bug: independently reading the exact same address
+via `write_field.py` moments later returned real data ("HiPitch Buzz Ld" / Category 34), and after
+adding proper error-status surfacing to the new read callbacks (they'd been silently swallowing
+failures, unlike every other control's read path — a real gap, now fixed) and rebuilding, a plain
+Refresh click correctly showed "HiPitch Buzz Ld" / `34`, matching the independent check exactly.
+
+**Writing is only half-verified, and parked before finishing.** A direct Python write to the same
+address (`write_field.py --write`, bypassing the app) round-tripped perfectly at the byte level
+(wrote "TESTNAME1234567", read back matched exactly) — so the underlying write mechanism is sound,
+not a rejected/protected field. But the on-device screen never showed the new name, even after the
+user was asked to back out and re-enter the screen (the already-known "device doesn't live-redraw"
+quirk didn't explain it here). The user's last message before parking — "Clip is not renaming" —
+suggests the on-app test was actually happening with the **Clip selector set to a specific clip**,
+not Track Sound. That most likely means this was hitting the already-parked **"Writing to a Clip
+slot does not work yet"** issue from the Tone Snapshot section above, not a new Name-specific bug —
+but this wasn't confirmed before stopping. Test value was restored to the original "HiPitch Buzz Ld"
+via direct Python write (round-trip confirmed) before parking, so the device is clean.
+
+**Closed 2026-09-05.** After the Clip-slot write bug above was retested and couldn't be reproduced,
+Name-field editing was retested the same way (Clip 1 selected, direct edit + Enter) and now updates
+the on-device name correctly. Confirms the suspicion: both "not working" reports were the same
+transient connectivity issue, not a Name-specific bug or a real Clip-write bug. No code changes were
+needed for either — Tone Name/Category editing is fully working, reading and writing, for both
+Track Sound and Clip slots.

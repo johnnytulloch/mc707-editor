@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <vector>
+#include <juce_core/juce_core.h>
 
 // Roland SysEx message building for the MC-707's undocumented RQ1/DT1
 // interface. Ported from tools/mc707.py, same values already proven
@@ -123,5 +124,27 @@ namespace SysExCodec
         for (auto nibble : bytes)
             value = (value << 4) | (nibble & 0x0F);
         return value;
+    }
+
+    // Roland ASCII fields (e.g. tone_common's Name): one 7-bit char per byte,
+    // space-padded to the field's declared size.
+    inline std::vector<uint8_t> encodeAscii (const juce::String& text, int size)
+    {
+        std::vector<uint8_t> out ((size_t) size, (uint8_t) ' ');
+        auto trimmed = text.substring (0, size);
+        for (int i = 0; i < trimmed.length(); ++i)
+        {
+            auto c = (uint8_t) trimmed[i];
+            out[(size_t) i] = c < 0x80 ? c : (uint8_t) ' ';
+        }
+        return out;
+    }
+
+    inline juce::String decodeAscii (const std::vector<uint8_t>& bytes)
+    {
+        juce::String result;
+        for (auto b : bytes)
+            result << (char) (b < 0x80 ? b : (uint8_t) ' ');
+        return result;
     }
 }

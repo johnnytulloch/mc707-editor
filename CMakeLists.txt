@@ -41,6 +41,7 @@ target_sources(MC707Editor PRIVATE
     src/midi/CCTransmitter.cpp
     src/model/ZenCoreAddressing.cpp
     src/model/ParameterMap.cpp
+    src/model/ToneSnapshot.cpp
 )
 
 target_compile_definitions(MC707Editor PRIVATE

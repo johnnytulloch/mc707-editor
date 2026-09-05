@@ -1,6 +1,7 @@
 #include "ToneEditComponent.h"
 #include "../midi/SysExCodec.h"
 #include "../model/ZenCoreAddressing.h"
+#include "../model/ToneSnapshot.h"
 #include <cmath>
 
 namespace
@@ -134,12 +135,48 @@ ToneEditComponent::ToneEditComponent (CCTransmitter& transmitterIn)
     addAndMakeVisible (partialBox);
     addAndMakeVisible (partialLabel);
 
+    clipBox.addItem ("Track Sound", 1);
+    for (int c = 1; c <= 16; ++c)
+        clipBox.addItem ("Clip " + juce::String (c), c + 1);
+    clipBox.setSelectedId (1, juce::dontSendNotification);
+    clipBox.onChange = [this] { refreshAll(); };
+    addAndMakeVisible (clipBox);
+    addAndMakeVisible (clipLabel);
+
     refreshButton.onClick = [this] { refreshAll(); };
     addAndMakeVisible (refreshButton);
 
     statusLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (statusLabel);
     setStatus ("Not read yet -- hit Refresh once connected.", juce::Colours::grey);
+
+    addAndMakeVisible (nameLabel);
+    // Not the 50Hz poll-and-send pattern the sliders use -- a text field has no
+    // natural "current value to diff against last-sent", and writing on every
+    // keystroke would spam SysEx mid-edit. Commit on Enter or on losing focus instead.
+    nameEditor.onReturnKey = [this] { writeName(); };
+    nameEditor.onFocusLost = [this] { writeName(); };
+    addAndMakeVisible (nameEditor);
+
+    addAndMakeVisible (categoryLabel);
+    if (auto categoryField = parameterMap.findField ("tone_common", "Category"))
+        categorySlider.setRange ((double) categoryField->rangeLow, (double) categoryField->rangeHigh, 1.0);
+    addAndMakeVisible (categorySlider);
+
+    captureButton.onClick = [this] { captureSnapshot(); };
+    addAndMakeVisible (captureButton);
+    writeButton.onClick = [this] { writeSnapshot(); };
+    addAndMakeVisible (writeButton);
+    saveButton.onClick = [this] { saveSnapshotToFile(); };
+    addAndMakeVisible (saveButton);
+    loadButton.onClick = [this] { loadSnapshotFromFile(); };
+    addAndMakeVisible (loadButton);
+
+    snapshotInfoLabel.setJustificationType (juce::Justification::centredLeft);
+    snapshotInfoLabel.setColour (juce::Label::textColourId, juce::Colours::grey);
+    addAndMakeVisible (snapshotInfoLabel);
+    setSnapshotStatus ("No tone captured yet.", juce::Colours::grey);
+    addAndMakeVisible (snapshotStatusLabel);
 
     // Section count keeps growing (LFO, PENV, EQ, MFX, ...) and no longer
     // fits a fixed-height window -- everything below the selector bar lives
@@ -225,14 +262,23 @@ ToneEditComponent::~ToneEditComponent()
     stopTimer();
 }
 
-uint32_t ToneEditComponent::computeAddress (const juce::String& blockId, const FieldDescriptor& field) const
+uint32_t ToneEditComponent::computeSlotAddress() const
 {
     auto trackIdx = trackBox.getSelectedId() - 1;
-    auto partialIdx = partialBox.getSelectedId() - 1;
 
-    // Track's own "track sound" slot (clipIdx = nullopt), not a specific clip tone.
-    auto slotAddress = ZenCoreAddressing::getSlotAddress (
-        parameterMap.trackBase(), parameterMap.toneAlignment(), trackIdx, std::nullopt);
+    // clipBox item 1 = "Track Sound" (clipIdx = nullopt); items 2-17 = Clip
+    // 1-16 (clipIdx = 0-15).
+    auto clipItemId = clipBox.getSelectedId();
+    std::optional<int> clipIdx = clipItemId <= 1 ? std::nullopt : std::optional<int> (clipItemId - 2);
+
+    return ZenCoreAddressing::getSlotAddress (
+        parameterMap.trackBase(), parameterMap.toneAlignment(), trackIdx, clipIdx);
+}
+
+uint32_t ToneEditComponent::computeAddress (const juce::String& blockId, const FieldDescriptor& field) const
+{
+    auto partialIdx = partialBox.getSelectedId() - 1;
+    auto slotAddress = computeSlotAddress();
 
     // Block-relative-offset and field-offset additions are safe with plain
     // addition (proven this session -- every block/field offset lands in a
@@ -258,6 +304,167 @@ void ToneEditComponent::setStatus (const juce::String& text, juce::Colour colour
     statusLabel.setColour (juce::Label::textColourId, colour);
 }
 
+void ToneEditComponent::refreshNameAndCategory()
+{
+    auto nameField = parameterMap.findField ("tone_common", "Name");
+    auto categoryField = parameterMap.findField ("tone_common", "Category");
+    if (! nameField || ! categoryField)
+        return;
+
+    auto nameAddress = computeAddress ("tone_common", *nameField);
+    transmitter.sendSysExRead (nameAddress, nameField->size, [this] (bool ok, std::vector<uint8_t> data)
+    {
+        if (! ok)
+        {
+            setStatus ("Name read failed -- no reply.", juce::Colours::orange);
+            return;
+        }
+        nameEditor.setText (SysExCodec::decodeAscii (data), juce::dontSendNotification);
+        nameInitialized = true;
+    });
+
+    auto categoryAddress = computeAddress ("tone_common", *categoryField);
+    transmitter.sendSysExRead (categoryAddress, categoryField->size, [this] (bool ok, std::vector<uint8_t> data)
+    {
+        if (! ok)
+        {
+            setStatus ("Category read failed -- no reply.", juce::Colours::orange);
+            return;
+        }
+        auto value = SysExCodec::decodeUint7 (data);
+        categorySlider.setValue ((double) value, juce::dontSendNotification);
+        categoryLastSent = value;
+    });
+}
+
+void ToneEditComponent::writeName()
+{
+    if (! nameInitialized) // don't write before the first real read completes
+        return;
+
+    auto nameField = parameterMap.findField ("tone_common", "Name");
+    if (! nameField)
+        return;
+
+    auto address = computeAddress ("tone_common", *nameField);
+    auto data = SysExCodec::encodeAscii (nameEditor.getText(), nameField->size);
+    transmitter.sendSysExWrite (address, data);
+}
+
+void ToneEditComponent::setSnapshotStatus (const juce::String& text, juce::Colour colour)
+{
+    snapshotStatusLabel.setText (text, juce::dontSendNotification);
+    snapshotStatusLabel.setColour (juce::Label::textColourId, colour);
+}
+
+void ToneEditComponent::captureSnapshot()
+{
+    if (! parameterMap.isValid())
+    {
+        setSnapshotStatus ("Parameter map failed to load.", juce::Colours::red);
+        return;
+    }
+    if (! transmitter.isSysExReady())
+    {
+        setSnapshotStatus ("Not connected -- select a device on the Control Panel tab.", juce::Colours::orange);
+        return;
+    }
+
+    setSnapshotStatus ("Capturing...", juce::Colours::yellow);
+    auto slotAddress = computeSlotAddress();
+
+    readToneSnapshot (transmitter, parameterMap, slotAddress, [this] (bool ok, ToneSnapshot snapshot)
+    {
+        if (! ok)
+        {
+            setSnapshotStatus ("Capture failed -- a read timed out.", juce::Colours::orange);
+            return;
+        }
+
+        capturedSnapshot = std::move (snapshot);
+        snapshotInfoLabel.setText ("Captured: " + capturedSnapshot->name.trim() + " (Cat " + juce::String (capturedSnapshot->category) + ")",
+                                     juce::dontSendNotification);
+        setSnapshotStatus ("Captured " + juce::String ((int) capturedSnapshot->chunks.size()) + " blocks.", juce::Colours::lightgreen);
+    });
+}
+
+void ToneEditComponent::writeSnapshot()
+{
+    if (! capturedSnapshot)
+    {
+        setSnapshotStatus ("Nothing captured yet -- Capture or Load a tone first.", juce::Colours::orange);
+        return;
+    }
+    if (! transmitter.isOpen())
+    {
+        setSnapshotStatus ("Not connected -- select a device on the Control Panel tab.", juce::Colours::orange);
+        return;
+    }
+
+    auto slotAddress = computeSlotAddress();
+    writeToneSnapshot (transmitter, parameterMap, slotAddress, *capturedSnapshot, [this] (bool ok)
+    {
+        setSnapshotStatus (ok ? "Written -- hit Refresh to see it on this selection."
+                              : "Write failed -- nothing was captured to send.",
+                            ok ? juce::Colours::lightgreen : juce::Colours::orange);
+    });
+}
+
+void ToneEditComponent::saveSnapshotToFile()
+{
+    if (! capturedSnapshot)
+    {
+        setSnapshotStatus ("Nothing captured yet -- Capture a tone first.", juce::Colours::orange);
+        return;
+    }
+
+    auto suggestedName = capturedSnapshot->name.trim().isNotEmpty() ? capturedSnapshot->name.trim() : juce::String ("tone");
+    activeChooser = std::make_unique<juce::FileChooser> ("Save tone as...",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile (suggestedName + ".tone.json"),
+        "*.json");
+    activeChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
+        [this] (const juce::FileChooser& chooser)
+        {
+            auto file = chooser.getResult();
+            if (file == juce::File {})
+                return;
+
+            auto json = juce::JSON::toString (toneSnapshotToVar (*capturedSnapshot));
+            if (file.replaceWithText (json))
+                setSnapshotStatus ("Saved to " + file.getFileName() + ".", juce::Colours::lightgreen);
+            else
+                setSnapshotStatus ("Failed to write " + file.getFileName() + ".", juce::Colours::orange);
+        });
+}
+
+void ToneEditComponent::loadSnapshotFromFile()
+{
+    activeChooser = std::make_unique<juce::FileChooser> ("Load tone from file...",
+        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.json");
+    activeChooser->launchAsync (juce::FileBrowserComponent::openMode,
+        [this] (const juce::FileChooser& chooser)
+        {
+            auto file = chooser.getResult();
+            if (! file.existsAsFile())
+                return;
+
+            auto parsed = juce::JSON::parse (file.loadFileAsString());
+            auto snapshot = toneSnapshotFromVar (parsed);
+            if (! snapshot)
+            {
+                setSnapshotStatus ("Couldn't parse " + file.getFileName() + " as a tone file.", juce::Colours::orange);
+                return;
+            }
+
+            capturedSnapshot = std::move (snapshot);
+            snapshotInfoLabel.setText ("Loaded: " + capturedSnapshot->name.trim() + " (Cat " + juce::String (capturedSnapshot->category) + ")",
+                                         juce::dontSendNotification);
+            setSnapshotStatus ("Loaded " + juce::String ((int) capturedSnapshot->chunks.size()) + " blocks from "
+                                    + file.getFileName() + ".",
+                                juce::Colours::lightgreen);
+        });
+}
+
 void ToneEditComponent::refreshAll()
 {
     if (! parameterMap.isValid())
@@ -279,6 +486,9 @@ void ToneEditComponent::refreshAll()
     }
 
     setStatus ("Reading...", juce::Colours::yellow);
+
+    nameInitialized = false; // don't let a commit fire on stale text while re-reading
+    refreshNameAndCategory();
 
     for (auto& cPtr : controls)
     {
@@ -317,6 +527,20 @@ void ToneEditComponent::timerCallback()
 {
     if (! transmitter.isSysExReady())
         return;
+
+    if (categoryLastSent != -1) // -1 sentinel: no real read has completed yet
+    {
+        auto value = (int) std::round (categorySlider.getValue());
+        if (value != categoryLastSent)
+        {
+            categoryLastSent = value;
+            if (auto categoryField = parameterMap.findField ("tone_common", "Category"))
+            {
+                auto address = computeAddress ("tone_common", *categoryField);
+                transmitter.sendSysExWrite (address, { SysExCodec::encodeUint7 (value) });
+            }
+        }
+    }
 
     for (auto& cPtr : controls)
     {
@@ -358,9 +582,34 @@ void ToneEditComponent::resized()
     partialLabel.setBounds (selectorArea.removeFromLeft (60));
     partialBox.setBounds (selectorArea.removeFromLeft (110));
     selectorArea.removeFromLeft (16);
+    clipLabel.setBounds (selectorArea.removeFromLeft (40));
+    clipBox.setBounds (selectorArea.removeFromLeft (110));
+    selectorArea.removeFromLeft (16);
     refreshButton.setBounds (selectorArea.removeFromLeft (90));
     selectorArea.removeFromLeft (12);
     statusLabel.setBounds (selectorArea);
+
+    area.removeFromTop (8);
+    auto identityArea = area.removeFromTop (28);
+    nameLabel.setBounds (identityArea.removeFromLeft (75));
+    nameEditor.setBounds (identityArea.removeFromLeft (180));
+    identityArea.removeFromLeft (16);
+    categoryLabel.setBounds (identityArea.removeFromLeft (65));
+    categorySlider.setBounds (identityArea.removeFromLeft (150));
+
+    area.removeFromTop (8);
+    auto snapshotArea = area.removeFromTop (28);
+    captureButton.setBounds (snapshotArea.removeFromLeft (110));
+    snapshotArea.removeFromLeft (10);
+    writeButton.setBounds (snapshotArea.removeFromLeft (150));
+    snapshotArea.removeFromLeft (10);
+    saveButton.setBounds (snapshotArea.removeFromLeft (80));
+    snapshotArea.removeFromLeft (6);
+    loadButton.setBounds (snapshotArea.removeFromLeft (80));
+    snapshotArea.removeFromLeft (12);
+    snapshotInfoLabel.setBounds (snapshotArea.removeFromLeft (juce::jmax (0, snapshotArea.getWidth() / 2)));
+    snapshotArea.removeFromLeft (10);
+    snapshotStatusLabel.setBounds (snapshotArea);
 
     area.removeFromTop (20);
 

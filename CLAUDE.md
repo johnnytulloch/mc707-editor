@@ -47,9 +47,33 @@ caught and fixed along the way: a block-name mismatch between `data/zencore-map.
 and `meta.block_relative_offsets` tables silently resolved to a wrong-but-plausible address instead
 of failing — `ParameterMap::blockRelativeOffset()` now `jassert`s on that class of mismatch.
 Explicitly out of scope for this pilot: per-write read-back verification (initial Refresh read
-covers the safety principle, not every single write), clip-tone editing (only a track's own "track
-sound" slot is addressed so far), and a nicer display mapping for enum/dB/signed fields (sliders
-currently show raw byte values, not the on-device unit).
+covers the safety principle, not every single write), and a nicer display mapping for enum/dB/signed
+fields (sliders currently show raw byte values, not the on-device unit).
+
+**Tone Snapshot (bulk read/write) is built and confirmed working, including cross-track transfer.**
+`src/model/ToneSnapshot.{h,cpp}` captures every field `data/zencore-map.json` currently declares for
+a whole tone in one operation (not one field at a time), writes a captured snapshot to any other
+track/clip slot, and saves/loads it to a local JSON file. `ToneEditComponent` gained a Clip selector
+(Track Sound or Clip 1-16, addressing every existing per-field control as well as Snapshot) and a
+"Snapshot" section (Capture / Write To Selection / Save.../ Load...). Two real bugs found and fixed
+via live cross-track testing (Track 1 → Track 4, both Track Sound): unpaced writes silently dropping
+most of a ~30-chunk burst (fixed with a timer-paced writer, see `PacedSnapshotWriter`), and a
+genuinely missing block (`synth_common`, address known since M2 but never given fields, so never
+appeared in any read/write) whose real 9-byte size was found by sweeping RQ1 read sizes rather than
+guessed — see `tools/FINDINGS.md`'s "Tone Snapshot" section for the full trail. **Confirmed working
+for both Track Sound → Track Sound and Track Sound → Clip transfers** (the latter retested
+2026-09-05 after an initial failure didn't reproduce — see `tools/FINDINGS.md`; byte-for-byte diff
+clean across all 33 chunks, confirmed audibly correct). Also out of scope so far:
+a snapshot only contains what's already mapped (PCM wave/sample, keyboard/velocity range, and full
+MFX type parameters aren't captured), and there's no library/browser UI yet, just capture/write/
+save/load primitives.
+
+**Tone Name / Category editing is built and fully confirmed working**, for both Track Sound and
+Clip slots. `ToneEditComponent` gained a header-row `nameEditor` (`juce::TextEditor`, commits on
+Enter/focus-lost rather than the sliders' 50Hz poll-and-send) and `categorySlider`, reading/writing
+`tone_common`'s Name (ascii) and Category (uint7) fields — see `tools/FINDINGS.md`'s "Tone Name /
+Category editing" section. Category shows the raw 0-49 number; no name lookup table exists (the
+official Sound List gives per-tone category strings, not a number-indexed legend).
 
 - `CMakeLists.txt` — JUCE via CMake FetchContent (JUCE tag 8.0.6), builds a standalone GUI app
   target `MC707Editor`; also a `juce_add_binary_data` target embedding `data/zencore-map.json`.
@@ -66,12 +90,15 @@ currently show raw byte values, not the on-device unit).
   Change (Phase 1, unchanged), plus RQ1/DT1 SysEx read/write (M3) — reads are queued and serviced
   one at a time (the reply-address bug means concurrent requests can't be told apart), writes are
   fire-and-forget.
-- `src/midi/SysExCodec.h` — pure RQ1/DT1 message building, checksum, and uint7/nibble2/nibble4
+- `src/midi/SysExCodec.h` — pure RQ1/DT1 message building, checksum, and uint7/nibble2/nibble4/ascii
   encode/decode. No MIDI I/O.
 - `src/model/ZenCoreAddressing.{h,cpp}` — the 7-bit-carry tone-slot addressing formula (C++ port of
   `tools/zencore_addressing.py`).
 - `src/model/ParameterMap.{h,cpp}` — loads `data/zencore-map.json` at runtime, exposes field
-  lookups by block+name. The one place in `/src` that reads the map.
+  lookups by block+name, plus every-field-in-a-block and per-partial-or-not lookups used by
+  ToneSnapshot's chunk plan. The one place in `/src` that reads the map.
+- `src/model/ToneSnapshot.{h,cpp}` — bulk (whole-tone) read/write and JSON (de)serialization,
+  described above. Pure data + a paced `CCTransmitter`-driven writer, no UI.
 
 Nothing here is macOS- or Windows-specific — it's plain cross-platform JUCE (`juce::MidiOutput`),
 so it should build and run unmodified with the commands below.

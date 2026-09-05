@@ -45,7 +45,7 @@
       "synth_common": "0x003C00",
       "synth_pmt": "0x003D00",
       "synth_partial": ["0x003E00", "0x003F00", "0x004000", "0x004100"],
-      "_note": "tone_partial/partial_pitch_env/partial_filter_env/partial_amp_env/partial_eq index by partial (1-4, i.e. array index 0-3), each block strided 0x000100 apart. partial_lfo is strided 0x000200 apart (double) -- likely because it packs both LFO and Mod LFO; only LFO1's own fields are mapped below (0x00-0x1D), the rest of that block is unmapped. tone_mfx, tone_pmt, synth_common, synth_pmt, synth_partial are declared (address only) but their fields are NOT mapped yet -- explicitly deferred per docs/M2_PLAN.md (MFX especially: 93 effect types, a later pass)."
+      "_note": "tone_partial/partial_pitch_env/partial_filter_env/partial_amp_env/partial_eq index by partial (1-4, i.e. array index 0-3), each block strided 0x000100 apart. partial_lfo is strided 0x000200 apart (double) -- likely because it packs both LFO and Mod LFO; only LFO1's own fields are mapped below (0x00-0x1D), the rest of that block is unmapped. tone_mfx, tone_pmt, synth_pmt, synth_partial are declared (address only) but their fields are NOT mapped yet -- explicitly deferred per docs/M2_PLAN.md (MFX especially: 93 effect types, a later pass). synth_common is now mapped, see blocks.synth_common._note -- unlike the others, it's 32 opaque Reserved bytes rather than named fields, added specifically so Tone Snapshot's bulk read/write includes it."
     }
   },
   "blocks": {
@@ -256,6 +256,23 @@
         { "offset": "0x1A", "size": 1, "encoding": "uint7", "name": "EQ Switch", "group": "eq", "range": [0, 1], "display": "OFF, ON", "validation": "device-confirmed", "note": "Confirmed 2026-09-01: read matched on-device SW=OFF; wrote 1 via SysEx, user confirmed on-device display updated to ON; restored to OFF. See tools/FINDINGS.md." }
       ]
     },
+    "synth_common": {
+      "relative_offset": "0x003C00",
+      "size": 9,
+      "validation": "structural",
+      "_note": "Added 2026-09-03 during the Tone Snapshot (bulk read/write) feature: this block was previously declared address-only (see meta.block_relative_offsets), with zero fields, so it was silently excluded from every bulk read/write -- discovered live when a captured tone played correctly on a self-write (same track) but was silent on a cross-track write, while the on-device native COPY/PASTE (which presumably does transfer this block) worked correctly for the same transfer. Size is device-confirmed, not a guess: an RQ1 read at this address was tried with sizes 8/9/10/12/16/20/24/32 -- the device consistently returns exactly 9 bytes regardless of how much more is requested (Track 1, live, 2026-09-03), so 9 bytes is the real, firmware-enforced extent of this block. Individual byte meanings within those 9 bytes are still not known -- named generically as Reserved pending discovery.",
+      "fields": [
+        { "offset": "0x00", "size": 1, "encoding": "uint7", "name": "Reserved 0", "group": "synth_common", "range": [0, 127], "validation": "structural" },
+        { "offset": "0x01", "size": 1, "encoding": "uint7", "name": "Reserved 1", "group": "synth_common", "range": [0, 127], "validation": "structural" },
+        { "offset": "0x02", "size": 1, "encoding": "uint7", "name": "Reserved 2", "group": "synth_common", "range": [0, 127], "validation": "structural" },
+        { "offset": "0x03", "size": 1, "encoding": "uint7", "name": "Reserved 3", "group": "synth_common", "range": [0, 127], "validation": "structural" },
+        { "offset": "0x04", "size": 1, "encoding": "uint7", "name": "Reserved 4", "group": "synth_common", "range": [0, 127], "validation": "structural" },
+        { "offset": "0x05", "size": 1, "encoding": "uint7", "name": "Reserved 5", "group": "synth_common", "range": [0, 127], "validation": "structural" },
+        { "offset": "0x06", "size": 1, "encoding": "uint7", "name": "Reserved 6", "group": "synth_common", "range": [0, 127], "validation": "structural" },
+        { "offset": "0x07", "size": 1, "encoding": "uint7", "name": "Reserved 7", "group": "synth_common", "range": [0, 127], "validation": "structural" },
+        { "offset": "0x08", "size": 1, "encoding": "uint7", "name": "Reserved 8", "group": "synth_common", "range": [0, 127], "validation": "structural" }
+      ]
+    },
     "synth_pmt": {
       "relative_offset": "0x003D00",
       "size": null,
@@ -276,8 +293,8 @@
       "fields": [
         { "offset": "0x00", "size": 1, "encoding": "uint7", "name": "Type", "group": "mfx", "range": [0, 90], "display": "91 named effect types -- see the official doc for the full list", "validation": "device-confirmed", "note": "Confirmed 2026-09-01: read 4, on-device TYPE showed a real named effect ('Low Boost') with its own type-specific parameter screen (Boost Gain/Freq/Wid, Low/High Gain), confirming the field. Wrote 0 via SysEx, on-device TYPE updated to 'Thru' (the expected bypass/off type at index 0); restored to 4. See tools/FINDINGS.md." },
         { "offset": "0x01", "size": 1, "encoding": "uint7", "name": "MFX Switch", "group": "mfx", "range": [0, 1], "display": "OFF, ON", "validation": "device-confirmed", "note": "Confirmed 2026-09-01: read 1, matched on-device SWITCH=ON exactly. See tools/FINDINGS.md." },
-        { "offset": "0x02", "size": 1, "encoding": "uint7", "name": "MFX Chorus Send Level", "group": "mfx", "range": [0, 127], "display": "0 - 127", "validation": "structural", "note": "Read 127 (max). Not independently confirmed against an on-device display this pass (didn't locate a dedicated Chorus Send screen for MFX)." },
-        { "offset": "0x03", "size": 1, "encoding": "uint7", "name": "MFX Reverb Send Level", "group": "mfx", "range": [0, 127], "display": "0 - 127", "validation": "structural", "note": "Read 127 (max). Not independently confirmed against an on-device display this pass (didn't locate a dedicated Reverb Send screen for MFX)." }
+        { "offset": "0x02", "size": 1, "encoding": "uint7", "name": "MFX Chorus Send Level", "group": "mfx", "range": [0, 127], "display": "0 - 127", "validation": "structural", "note": "Read 127 (max). Second attempt 2026-09-03 (first: couldn't find a dedicated Chorus Send screen on-device): wrote 64 via SysEx (round-trip confirmed byte-level -- read back 64), user found no visual display anywhere for it, then checked for an audible difference against the restored original 127 -- none detected either. Ruled out MFX being off as the explanation: MFX Switch read 1 (ON), Type read 32 (some specific effect type, not looked up). Genuinely inconclusive by both methods this session, not just unconfirmed by oversight -- restored to 127 (original value) afterward. Stays structural; would need either finding the right on-device screen or a tone/MFX Type combination where Chorus Send audibly matters to progress further." },
+        { "offset": "0x03", "size": 1, "encoding": "uint7", "name": "MFX Reverb Send Level", "group": "mfx", "range": [0, 127], "display": "0 - 127", "validation": "structural", "note": "Read 127 (max). Not independently confirmed against an on-device display this pass (didn't locate a dedicated Reverb Send screen for MFX). Untouched in the 2026-09-03 Chorus Send re-attempt (see that field's note) -- same open question likely applies here too, not separately retested." }
       ]
     },
     "tone_pmt": {

@@ -3,6 +3,7 @@
 #include <juce_core/juce_core.h>
 #include <array>
 #include <optional>
+#include <vector>
 
 // One field's descriptor, as looked up from data/zencore-map.json.
 struct FieldDescriptor
@@ -29,6 +30,18 @@ public:
     // blockId e.g. "tone_partial", "partial_amp_env". fieldName must match
     // the JSON's "name" field exactly (e.g. "Pan", "TVA Env Time1").
     std::optional<FieldDescriptor> findField (const juce::String& blockId, const juce::String& fieldName) const;
+
+    // Every field declared under blocks[blockId].fields, in declaration
+    // order. Used to compute a block's mapped-field span for bulk read/write
+    // (ToneSnapshot) rather than looking up one field at a time.
+    std::vector<FieldDescriptor> allFields (const juce::String& blockId) const;
+
+    // Every key under "blocks" (e.g. "tone_common", "tone_partial", ...).
+    juce::StringArray blockIds() const;
+
+    // True if meta.block_relative_offsets[blockId] is an array (one entry
+    // per partial 1-4) rather than a single fixed-offset string.
+    bool blockIsPerPartial (const juce::String& blockId) const;
 
     // Relative offset of a block for a given partial index (0-3). Blocks
     // with a single relative_offset (e.g. tone_common) ignore partialIdx.

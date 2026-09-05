@@ -6,6 +6,7 @@
 #include <vector>
 #include "../midi/CCTransmitter.h"
 #include "../model/ParameterMap.h"
+#include "../model/ToneSnapshot.h"
 
 // First real SysEx-editing panel in the app (M3 pilot). Edits fields
 // closed-loop confirmed against real hardware this session (see
@@ -70,23 +71,63 @@ private:
 
     void timerCallback() override; // poll-and-send-on-change, matches TrackStripComponent
     void refreshAll();
+    // tone_common's Name/Category -- "which tone is this", not a detail to bury in the
+    // scrolling section grid, so these live as dedicated header-row controls rather
+    // than going through kControlSpecs/EditControl (Name is ascii -- the only one in
+    // the whole map -- so it doesn't fit EditControl's Slider-only shape anyway).
+    void refreshNameAndCategory();
+    void writeName();
     void setStatus (const juce::String& text, juce::Colour colour);
+    // Track/Clip selection -> a full slot address (track sound, or a
+    // specific clip's tone if the Clip selector isn't set to "Track Sound").
+    uint32_t computeSlotAddress() const;
     uint32_t computeAddress (const juce::String& blockId, const FieldDescriptor& field) const;
     // Resolves fieldNameTemplate against the currently-selected partial, if set.
     std::optional<FieldDescriptor> resolveDescriptor (EditControl& c) const;
+
+    void captureSnapshot();
+    void writeSnapshot();
+    void saveSnapshotToFile();
+    void loadSnapshotFromFile();
+    void setSnapshotStatus (const juce::String& text, juce::Colour colour);
 
     CCTransmitter& transmitter;
     ParameterMap parameterMap;
 
     juce::Label titleLabel { {}, "TONE EDIT" };
-    juce::Label subtitleLabel { {}, "Track sound, M3 pilot \xE2\x80\x94 sections grow as more fields are confirmed" };
+    juce::Label subtitleLabel { {}, "Track sound or a clip's tone, M3 pilot \xE2\x80\x94 sections grow as more fields are confirmed" };
 
     juce::Label trackLabel { {}, "Track:" };
     juce::ComboBox trackBox;
     juce::Label partialLabel { {}, "Partial:" };
     juce::ComboBox partialBox;
+    // Item 1 = "Track Sound" (clipIdx = nullopt); items 2-17 = Clip 1-16
+    // (clipIdx = 0-15). Affects every read/write in this component, not
+    // just Snapshot -- closes the "clip-tone editing is a later extension"
+    // gap noted in this class's own header comment.
+    juce::Label clipLabel { {}, "Clip:" };
+    juce::ComboBox clipBox;
     juce::TextButton refreshButton { "Refresh" };
     juce::Label statusLabel;
+
+    juce::Label nameLabel { {}, "Tone Name:" };
+    juce::TextEditor nameEditor;
+    juce::Label categoryLabel { {}, "Category:" };
+    juce::Slider categorySlider { juce::Slider::LinearHorizontal, juce::Slider::TextBoxLeft };
+    // Shared by Name and Category -- both come from the same refreshNameAndCategory()
+    // read, so they become valid at the same moment. Mirrors EditControl's own
+    // initialized/lastSent pair, kept separate since these two fields aren't EditControls.
+    bool nameInitialized = false;
+    int categoryLastSent = -1;
+
+    juce::TextButton captureButton { "Capture Tone" };
+    juce::TextButton writeButton { "Write To Selection" };
+    juce::TextButton saveButton { "Save..." };
+    juce::TextButton loadButton { "Load..." };
+    juce::Label snapshotInfoLabel;
+    juce::Label snapshotStatusLabel;
+    std::optional<ToneSnapshot> capturedSnapshot;
+    std::unique_ptr<juce::FileChooser> activeChooser;
 
     juce::Viewport viewport;
     ContentPanel contentPanel;
